@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: taktak-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://taktak-frontend.vercel.app
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false

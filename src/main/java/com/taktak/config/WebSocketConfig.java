@@ -28,12 +28,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setAllowedOriginPatterns(Arrays.stream(allowedOrigins.split(","))
                         .map(String::trim)
                         .filter(origin -> !origin.isEmpty())
-                        .toArray(String[]::new))
-                .withSockJS();
-        registry.addEndpoint("/ws")
+                        .toArray(String[]::new));
+        registry.addEndpoint("/ws-sockjs")
                 .setAllowedOriginPatterns(Arrays.stream(allowedOrigins.split(","))
                         .map(String::trim)
                         .filter(origin -> !origin.isEmpty())
-                        .toArray(String[]::new));
+                        .toArray(String[]::new))
+                .withSockJS();
     }
 }
