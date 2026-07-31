@@ -44,6 +44,8 @@ public class ProductController {
             existing.setName(product.getName());
             existing.setPrice(product.getPrice());
             existing.setCategoryId(product.getCategoryId());
+            existing.setPromoPrice(product.getPromoPrice());
+            existing.setBadge(product.getBadge());
             if (product.getImageUrl() != null) {
                 existing.setImageUrl(product.getImageUrl());
             }

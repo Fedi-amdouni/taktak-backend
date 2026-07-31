@@ -37,7 +37,7 @@ public class OrderController {
         return ResponseEntity.ok(updated);
     }
 
-    @PatchMapping("/orders/{id}/transfer-table")
+    @PostMapping("/orders/{id}/transfer-table")
     public ResponseEntity<Order> transferOrderTable(@PathVariable UUID id, @RequestBody TableTransferDto dto) {
         Order updated = orderService.transferOrderTable(id, dto.getNewTableNumber());
         return ResponseEntity.ok(updated);
