@@ -103,6 +103,26 @@ public class GameWebSocketController {
     public void rollLudo(@DestinationVariable String tableId, UnoDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.ludo.roll(request.getPlayerId()))broadcast(tableId,ludoEvent(room.ludo)); } }
     @MessageMapping("/table/{tableId}/game/ludo/move")
     public void moveLudo(@DestinationVariable String tableId, LudoMoveRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.ludo.move(request.getPlayerId(),request.getTokenIndex()))broadcast(tableId,ludoEvent(room.ludo)); } }
+    @MessageMapping("/table/{tableId}/game/chkobba/join")
+    public void joinChkobba(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.chkobba.join(request.getPlayerId(),name);broadcastChkobba(tableId,room.chkobba); } }
+    @MessageMapping("/table/{tableId}/game/chkobba/start")
+    public void startChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
+    @MessageMapping("/table/{tableId}/game/chkobba/play")
+    public void playChkobba(@DestinationVariable String tableId, ChkobbaPlayRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.chkobba.play(request.getPlayerId(),request.getCardId(),request.getCaptureIds())) { broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } } }
+    @MessageMapping("/table/{tableId}/game/chkobba/replay")
+    public void replayChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
+    @MessageMapping("/table/{tableId}/game/rami/join")
+    public void joinRami(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.rami.join(request.getPlayerId(),name);broadcastRami(tableId,room.rami); } }
+    @MessageMapping("/table/{tableId}/game/rami/start")
+    public void startRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
+    @MessageMapping("/table/{tableId}/game/rami/draw")
+    public void drawRami(@DestinationVariable String tableId, RamiDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.rami.draw(request.getPlayerId(),request.getSource())){broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami);} } }
+    @MessageMapping("/table/{tableId}/game/rami/lay")
+    public void layRami(@DestinationVariable String tableId, RamiCardsRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.rami.lay(request.getPlayerId(),request.getCardIds())){broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami);} } }
+    @MessageMapping("/table/{tableId}/game/rami/discard")
+    public void discardRami(@DestinationVariable String tableId, RamiCardRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.rami.discard(request.getPlayerId(),request.getCardId())){broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami);} } }
+    @MessageMapping("/table/{tableId}/game/rami/replay")
+    public void replayRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
 
     private TableGameRoom room(String tableId) {
         return rooms.computeIfAbsent(tableId, ignored -> new TableGameRoom());
@@ -134,6 +154,69 @@ public class GameWebSocketController {
     private GameEvent unoEvent(UnoState state) { GameEvent event=new GameEvent(); event.setType("uno_state"); event.setUnoPlayers(new ArrayList<>(state.players.values())); event.setUnoHandCounts(state.hands.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size()))); event.setUnoTopCard(state.topCard); event.setUnoTurnId(state.turnId); event.setUnoWinner(state.winner); event.setUnoStarted(state.started); return event; }
     private GameEvent partyEvent(AdvancedPartyState state) { GameEvent event=new GameEvent(); event.setType("party_state"); event.setPartyMode(state.mode); event.setPartyPlayers(new ArrayList<>(state.players.values())); event.setPartyTurnId(state.turnId); event.setPartyPrompt(state.prompt()); event.setPartyAnswer(state.answer()); event.setPartyDiscussion(state.discussion()); event.setPartyRevealed(state.revealed); event.setPartyStarted(state.started); return event; }
     private GameEvent ludoEvent(LudoState state) { GameEvent event=new GameEvent();event.setType("ludo_state");event.setLudoPlayers(new ArrayList<>(state.players.values()));event.setLudoTokens(state.tokens);event.setLudoTurnId(state.turnId);event.setLudoWinner(state.winner);event.setLudoDice(state.dice);event.setLudoStarted(state.started);event.setLudoCanRoll(state.canRoll);return event; }
+    private void broadcastChkobba(String tableId, ChkobbaState state) {
+        broadcast(tableId, chkobbaEvent(state));
+        state.hands.forEach((playerId, hand) -> {
+            GameEvent handEvent = new GameEvent();
+            handEvent.setType("chkobba_hand");
+            handEvent.setChkobbaHand(new ArrayList<>(hand));
+            messagingTemplate.convertAndSend("/topic/table/" + tableId + "/game/chkobba/hand/" + playerId, handEvent);
+        });
+    }
+    private void playBotTurns(String tableId, ChkobbaState state) {
+        while (state.isBotTurn() && state.playBotTurn()) broadcastChkobba(tableId, state);
+    }
+    private void broadcastRami(String tableId, RamiState state) {
+        broadcast(tableId, ramiEvent(state));
+        state.hands.forEach((playerId, hand) -> {
+            GameEvent handEvent = new GameEvent();
+            handEvent.setType("rami_hand");
+            handEvent.setRamiHand(new ArrayList<>(hand));
+            messagingTemplate.convertAndSend("/topic/table/" + tableId + "/game/rami/hand/" + playerId, handEvent);
+        });
+    }
+    private void playBotRami(String tableId, RamiState state) { while (state.isBotTurn() && state.playBotTurn()) broadcastRami(tableId, state); }
+    private GameEvent ramiEvent(RamiState state) {
+        GameEvent event = new GameEvent();
+        event.setType("rami_state");
+        event.setRamiPlayers(new ArrayList<>(state.players.values()));
+        event.setRamiMelds(new ArrayList<>(state.melds));
+        event.setRamiDiscardTop(state.discardTop());
+        event.setRamiTurnId(state.turnId);
+        event.setRamiWinner(state.winner);
+        event.setRamiStarted(state.started);
+        event.setRamiHasDrawn(state.hasDrawn);
+        event.setRamiBotEnabled(state.botEnabled);
+        event.setRamiDeckRemaining(state.drawPile.size());
+        event.setRamiRound(state.round);
+        event.setRamiHandCounts(state.hands.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size(), (left, right) -> right, LinkedHashMap::new)));
+        return event;
+    }
+    private GameEvent chkobbaEvent(ChkobbaState state) {
+        GameEvent event = new GameEvent();
+        event.setType("chkobba_state");
+        event.setChkobbaPlayers(new ArrayList<>(state.players.values()));
+        event.setChkobbaTable(new ArrayList<>(state.table));
+        event.setChkobbaTurnId(state.turnId);
+        event.setChkobbaWinner(state.winner);
+        event.setChkobbaStarted(state.started);
+        event.setChkobbaTargetScore(state.targetScore);
+        event.setChkobbaBotEnabled(state.botEnabled);
+        event.setChkobbaScores(new LinkedHashMap<>(state.scores));
+        event.setChkobbaCapturedCounts(state.captured.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size(), (left, right) -> right, LinkedHashMap::new)));
+        event.setChkobbaScopaCounts(new LinkedHashMap<>(state.scopaCounts));
+        event.setChkobbaRoundScores(new LinkedHashMap<>(state.roundScores));
+        event.setChkobbaLastRoundScores(new LinkedHashMap<>(state.lastRoundScores));
+        event.setChkobbaLastRoundWinner(state.lastRoundWinner);
+        event.setChkobbaLastMovePlayerId(state.lastMovePlayerId);
+        event.setChkobbaLastMoveCard(state.lastMoveCard);
+        event.setChkobbaLastCaptureCount(state.lastCaptureCount);
+        event.setChkobbaLastScopa(state.lastScopa);
+        event.setChkobbaDeckRemaining(state.deckRemaining);
+        event.setChkobbaRound(state.round);
+        event.setChkobbaDealNumber(state.dealNumber);
+        return event;
+    }
 
     private String cleanName(String name) {
         if (name == null) return null;
@@ -151,6 +234,12 @@ public class GameWebSocketController {
     @Data public static class UnoDrawRequest { private String playerId; }
     @Data public static class PartyRequest { private String playerId; private String name; private String mode; }
     @Data public static class LudoMoveRequest { private String playerId; private Integer tokenIndex; }
+    @Data public static class ChkobbaPlayRequest { private String playerId; private String cardId; private List<String> captureIds; }
+    @Data public static class ChkobbaStartRequest { private Integer targetScore; private Boolean botEnabled; }
+    @Data public static class RamiDrawRequest { private String playerId; private String source; }
+    @Data public static class RamiStartRequest { private Boolean botEnabled; }
+    @Data public static class RamiCardsRequest { private String playerId; private List<String> cardIds; }
+    @Data public static class RamiCardRequest { private String playerId; private String cardId; }
     @Data
     public static class GameEvent {
         private String type;
@@ -166,6 +255,8 @@ public class GameWebSocketController {
         private List<Player> unoPlayers; private List<String> unoHand; private Map<String,Integer> unoHandCounts; private String unoTopCard; private String unoTurnId; private String unoWinner; private boolean unoStarted;
         private List<Player> partyPlayers; private String partyMode; private String partyTurnId; private String partyPrompt; private String partyAnswer; private String partyDiscussion; private boolean partyRevealed; private boolean partyStarted;
         private List<Player> ludoPlayers; private Map<String,int[]> ludoTokens; private String ludoTurnId; private String ludoWinner; private Integer ludoDice; private boolean ludoStarted; private boolean ludoCanRoll;
+        private List<Player> chkobbaPlayers; private List<ChkobbaState.Card> chkobbaTable; private List<ChkobbaState.Card> chkobbaHand; private String chkobbaTurnId; private String chkobbaWinner; private boolean chkobbaStarted; private int chkobbaTargetScore; private boolean chkobbaBotEnabled; private Map<String,Integer> chkobbaScores; private Map<String,Integer> chkobbaCapturedCounts; private Map<String,Integer> chkobbaScopaCounts; private Map<String,Integer> chkobbaRoundScores; private Map<String,Integer> chkobbaLastRoundScores; private String chkobbaLastRoundWinner; private String chkobbaLastMovePlayerId; private ChkobbaState.Card chkobbaLastMoveCard; private int chkobbaLastCaptureCount; private boolean chkobbaLastScopa; private int chkobbaDeckRemaining; private int chkobbaRound; private int chkobbaDealNumber;
+        private List<Player> ramiPlayers; private List<RamiMeld> ramiMelds; private ChkobbaState.Card ramiDiscardTop; private List<ChkobbaState.Card> ramiHand; private String ramiTurnId; private String ramiWinner; private boolean ramiStarted; private boolean ramiHasDrawn; private boolean ramiBotEnabled; private int ramiDeckRemaining; private int ramiRound; private Map<String,Integer> ramiHandCounts;
 
         static GameEvent rouletteSpin(String loser, long startsAt) {
             GameEvent event = new GameEvent();
@@ -179,12 +270,22 @@ public class GameWebSocketController {
     @Data
     public static class Player { private final String id; private final String name; }
 
+    @Data
+    public static class RamiMeld {
+        private String type;
+        private List<ChkobbaState.Card> cards;
+        public RamiMeld() {}
+        RamiMeld(String type, List<ChkobbaState.Card> cards) { this.type = type; this.cards = new ArrayList<>(cards); }
+    }
+
     private static class TableGameRoom {
         final Map<String, String> roulettePlayers = new LinkedHashMap<>();
         final ConnectFourState connectFour = new ConnectFourState();
         final UnoState uno = new UnoState();
         final AdvancedPartyState party = new AdvancedPartyState();
         final LudoState ludo = new LudoState();
+        final ChkobbaState chkobba = new ChkobbaState();
+        final RamiState rami = new RamiState();
     }
 
     private record QuizCard(String question, String answer, String discussion) {}
