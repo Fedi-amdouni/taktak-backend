@@ -14,6 +14,22 @@ final class LudoState {
         else if (!started && players.size() < 4) players.put(id, new GameWebSocketController.Player(id, name));
     }
 
+    void leave(String id) {
+        if (id != null) {
+            players.remove(id);
+            tokens.remove(id);
+        }
+        if (players.isEmpty()) {
+            started = false;
+            turnId = null;
+            winner = null;
+            dice = null;
+            canRoll = true;
+        } else if (Objects.equals(turnId, id)) {
+            advanceTurn();
+        }
+    }
+
     void start() {
         if (players.size() < 2) return;
         tokens.clear(); players.keySet().forEach(id -> tokens.put(id, new int[]{-1,-1,-1,-1}));

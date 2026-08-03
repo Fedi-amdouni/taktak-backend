@@ -55,6 +55,10 @@ public class ProductController {
             if (product.getOptionsJson() != null) {
                 existing.setOptionsJson(product.getOptionsJson());
             }
+            existing.setDescription(product.getDescription());
+            existing.setIsCombo(product.getIsCombo());
+            existing.setComboSlotsJson(product.getComboSlotsJson());
+            existing.setPrepTimeMinutes(product.getPrepTimeMinutes());
             Product updated = productRepository.save(existing);
             return ResponseEntity.ok(updated);
         }).orElseGet(() -> ResponseEntity.notFound().build());

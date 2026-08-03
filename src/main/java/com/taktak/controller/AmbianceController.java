@@ -54,6 +54,22 @@ public class AmbianceController {
         return ResponseEntity.ok(ambianceService.resetMusicVotes(cafeSlug));
     }
 
+    @PostMapping("/propose-music")
+    public ResponseEntity<AmbianceStateDto> proposeMusic(
+            @PathVariable String cafeSlug,
+            @RequestBody ProposeMusicRequest payload
+    ) {
+        return ResponseEntity.ok(ambianceService.proposeMusic(cafeSlug, payload.getTitle(), payload.getGenre(), payload.getVoterSessionId()));
+    }
+
+    @DeleteMapping("/music/{musicOptionId}")
+    public ResponseEntity<AmbianceStateDto> deleteMusicOption(
+            @PathVariable String cafeSlug,
+            @PathVariable String musicOptionId
+    ) {
+        return ResponseEntity.ok(ambianceService.deleteMusicOption(cafeSlug, UUID.fromString(musicOptionId)));
+    }
+
     @Data
     public static class VoteRequest {
         private String optionId;
@@ -64,5 +80,12 @@ public class AmbianceController {
     public static class CreatePollRequest {
         private String title;
         private List<String> options;
+    }
+
+    @Data
+    public static class ProposeMusicRequest {
+        private String title;
+        private String genre;
+        private String voterSessionId;
     }
 }

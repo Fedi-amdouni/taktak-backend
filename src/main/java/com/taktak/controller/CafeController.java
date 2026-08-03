@@ -70,6 +70,10 @@ public class CafeController {
                 pMap.put("isAvailable", p.getIsAvailable());
                 pMap.put("imageUrl", p.getImageUrl());
                 pMap.put("optionsJson", p.getOptionsJson());
+                pMap.put("description", p.getDescription());
+                pMap.put("isCombo", p.getIsCombo());
+                pMap.put("comboSlotsJson", p.getComboSlotsJson());
+                pMap.put("prepTimeMinutes", p.getPrepTimeMinutes());
                 pMap.put("badge", p.getBadge());
 
                 List<Map<String, Object>> suggestions = new ArrayList<>();

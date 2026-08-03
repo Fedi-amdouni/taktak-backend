@@ -29,10 +29,10 @@ public class Product {
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false, precision = 10, scale = 3)
+    @Column(nullable = false, precision = 19, scale = 6)
     private BigDecimal price;
 
-    @Column(name = "promo_price", precision = 10, scale = 3)
+    @Column(name = "promo_price", precision = 19, scale = 6)
     private BigDecimal promoPrice;
 
     @Column(name = "is_available", nullable = false)
@@ -44,6 +44,19 @@ public class Product {
 
     @Column(name = "options_json", columnDefinition = "text")
     private String optionsJson;
+
+    @Column(columnDefinition = "text")
+    private String description;
+
+    @Column(name = "is_combo")
+    @Builder.Default
+    private Boolean isCombo = false;
+
+    @Column(name = "combo_slots_json", columnDefinition = "text")
+    private String comboSlotsJson;
+
+    @Column(name = "prep_time_minutes")
+    private Integer prepTimeMinutes;
 
     @Column(name = "badge")
     private String badge;

@@ -61,18 +61,24 @@ public class OrderService {
                 .items(new ArrayList<>())
                 .build();
 
-        if (payload.getItems() != null) {
             for (CreateOrderPayload.OrderItemPayload itemPayload : payload.getItems()) {
+                String selJson = null;
+                if (itemPayload.getSelectedOptions() != null && !itemPayload.getSelectedOptions().isEmpty()) {
+                    try {
+                        selJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(itemPayload.getSelectedOptions());
+                    } catch (Exception ignored) {}
+                }
+
                 OrderItem item = OrderItem.builder()
                         .productId(itemPayload.getProductId())
                         .productName(itemPayload.getProductName())
                         .quantity(itemPayload.getQuantity() != null ? itemPayload.getQuantity() : 1)
                         .unitPrice(itemPayload.getUnitPrice() != null ? itemPayload.getUnitPrice() : BigDecimal.ZERO)
+                        .selectedOptionsJson(selJson)
                         .notes(itemPayload.getNotes())
                         .build();
                 order.addItem(item);
             }
-        }
 
         Order saved = orderRepository.save(order);
 

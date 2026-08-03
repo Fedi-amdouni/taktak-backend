@@ -187,4 +187,43 @@ public class AmbianceService {
         messagingTemplate.convertAndSend("/topic/ambiance/" + cafeSlug, updatedState);
         return updatedState;
     }
+
+    @Transactional
+    public AmbianceStateDto proposeMusic(String cafeSlug, String title, String genre, String voterSessionId) {
+        Cafe cafe = cafeRepository.findBySlug(cafeSlug)
+                .orElseThrow(() -> new RuntimeException("Café non trouvé"));
+
+        if (title == null || title.isBlank()) {
+            throw new RuntimeException("Le titre ou l'artiste est requis");
+        }
+
+        MusicVoteOption newMusic = MusicVoteOption.builder()
+                .cafeId(cafe.getId())
+                .title(title.trim())
+                .genre(genre != null && !genre.isBlank() ? genre.trim() : "Demande Client")
+                .votesCount(1)
+                .isActive(true)
+                .build();
+
+        newMusic = musicVoteOptionRepository.save(newMusic);
+
+        if (voterSessionId != null && !voterSessionId.isBlank()) {
+            userVoteRecordRepository.save(UserVoteRecord.builder()
+                    .voterSessionId(voterSessionId)
+                    .musicOptionId(newMusic.getId())
+                    .build());
+        }
+
+        AmbianceStateDto updatedState = getAmbianceState(cafeSlug, voterSessionId);
+        messagingTemplate.convertAndSend("/topic/ambiance/" + cafeSlug, updatedState);
+        return updatedState;
+    }
+
+    @Transactional
+    public AmbianceStateDto deleteMusicOption(String cafeSlug, UUID musicOptionId) {
+        musicVoteOptionRepository.deleteById(musicOptionId);
+        AmbianceStateDto updatedState = getAmbianceState(cafeSlug, null);
+        messagingTemplate.convertAndSend("/topic/ambiance/" + cafeSlug, updatedState);
+        return updatedState;
+    }
 }

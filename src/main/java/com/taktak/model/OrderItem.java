@@ -37,4 +37,25 @@ public class OrderItem {
     private BigDecimal unitPrice;
 
     private String notes;
+
+    @Column(name = "selected_options_json", columnDefinition = "text")
+    private String selectedOptionsJson;
+
+    @Transient
+    private java.util.Map<String, String> selectedOptions;
+
+    public java.util.Map<String, String> getSelectedOptions() {
+        if (selectedOptions != null) return selectedOptions;
+        if (selectedOptionsJson != null && !selectedOptionsJson.isBlank()) {
+            try {
+                return new com.fasterxml.jackson.databind.ObjectMapper().readValue(
+                    selectedOptionsJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, String>>() {}
+                );
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return null;
+    }
 }

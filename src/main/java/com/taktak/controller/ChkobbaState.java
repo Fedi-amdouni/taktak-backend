@@ -64,6 +64,21 @@ final class ChkobbaState {
         }
     }
 
+    void leave(String id) {
+        if (id != null) {
+            players.remove(id);
+            hands.remove(id);
+            scores.remove(id);
+        }
+        if (players.isEmpty()) {
+            started = false;
+            turnId = null;
+            winner = null;
+        } else if (Objects.equals(turnId, id)) {
+            turnId = players.keySet().iterator().next();
+        }
+    }
+
     void start() {
         start(DEFAULT_TARGET_SCORE, false);
     }

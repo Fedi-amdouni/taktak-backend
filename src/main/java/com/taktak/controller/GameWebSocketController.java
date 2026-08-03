@@ -23,6 +23,7 @@ public class GameWebSocketController {
     private static final int COLUMNS = 7;
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final com.taktak.service.PartyQuestionService partyQuestionService;
     private final Map<String, TableGameRoom> rooms = new LinkedHashMap<>();
 
     @MessageMapping("/table/{tableId}/game/roulette/join")
@@ -32,6 +33,15 @@ public class GameWebSocketController {
             String name = cleanName(request.getName());
             if (name == null) return;
             room.roulettePlayers.put(request.getPlayerId(), name);
+            broadcast(tableId, roulettePlayersEvent(room));
+        }
+    }
+
+    @MessageMapping("/table/{tableId}/game/roulette/leave")
+    public void leaveRoulette(@DestinationVariable String tableId, RouletteJoinRequest request) {
+        synchronized (rooms) {
+            TableGameRoom room = room(tableId);
+            room.roulettePlayers.remove(request.getPlayerId());
             broadcast(tableId, roulettePlayersEvent(room));
         }
     }
@@ -59,6 +69,15 @@ public class GameWebSocketController {
         }
     }
 
+    @MessageMapping("/table/{tableId}/game/connect-four/leave")
+    public void leaveConnectFour(@DestinationVariable String tableId, ConnectFourJoinRequest request) {
+        synchronized (rooms) {
+            TableGameRoom room = room(tableId);
+            room.connectFour.leave(request.getPlayerId());
+            broadcast(tableId, connectFourEvent(room.connectFour));
+        }
+    }
+
     @MessageMapping("/table/{tableId}/game/connect-four/move")
     public void connectFourMove(@DestinationVariable String tableId, ConnectFourMoveRequest request) {
         synchronized (rooms) {
@@ -80,6 +99,8 @@ public class GameWebSocketController {
 
     @MessageMapping("/table/{tableId}/game/uno/join")
     public void joinUno(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName()); if(name==null)return; TableGameRoom room=room(tableId); room.uno.join(request.getPlayerId(),name); broadcastUno(tableId, room.uno); } }
+    @MessageMapping("/table/{tableId}/game/uno/leave")
+    public void leaveUno(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.uno.leave(request.getPlayerId()); broadcastUno(tableId, room.uno); } }
     @MessageMapping("/table/{tableId}/game/uno/start")
     public void startUno(@DestinationVariable String tableId) { synchronized (rooms) { TableGameRoom room=room(tableId); room.uno.start(); broadcastUno(tableId,room.uno); } }
     @MessageMapping("/table/{tableId}/game/uno/play")
@@ -89,30 +110,45 @@ public class GameWebSocketController {
 
     @MessageMapping("/table/{tableId}/game/party/join")
     public void joinParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { String name=cleanName(request.getName()); if(name==null)return; TableGameRoom room=room(tableId); room.party.join(request.getMode(),request.getPlayerId(),name); broadcast(tableId,partyEvent(room.party)); } }
+    @MessageMapping("/table/{tableId}/game/party/leave")
+    public void leaveParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.leave(request.getPlayerId()); broadcast(tableId,partyEvent(room.party)); } }
     @MessageMapping("/table/{tableId}/game/party/start")
-    public void startParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.start(request.getMode()); broadcast(tableId,partyEvent(room.party)); } }
+    public void startParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.start(request.getMode(), request.getTheme(), partyQuestionService); broadcast(tableId,partyEvent(room.party)); } }
+    @MessageMapping("/table/{tableId}/game/party/choice")
+    public void choiceParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(room.party.chooseChoice(request.getPlayerId(), request.getChoice(), partyQuestionService)) broadcast(tableId,partyEvent(room.party)); } }
     @MessageMapping("/table/{tableId}/game/party/next")
-    public void nextParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.next(request.getPlayerId()); broadcast(tableId,partyEvent(room.party)); } }
+    public void nextParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.next(request.getPlayerId(), partyQuestionService); broadcast(tableId,partyEvent(room.party)); } }
     @MessageMapping("/table/{tableId}/game/party/reveal")
     public void revealParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(room.party.reveal(request.getPlayerId())) broadcast(tableId,partyEvent(room.party)); } }
+    @MessageMapping("/table/{tableId}/game/party/reset")
+    public void resetParty(@DestinationVariable String tableId) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.reset(); broadcast(tableId,partyEvent(room.party)); } }
+
     @MessageMapping("/table/{tableId}/game/ludo/join")
     public void joinLudo(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.ludo.join(request.getPlayerId(),name);broadcast(tableId,ludoEvent(room.ludo)); } }
+    @MessageMapping("/table/{tableId}/game/ludo/leave")
+    public void leaveLudo(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.ludo.leave(request.getPlayerId());broadcast(tableId,ludoEvent(room.ludo)); } }
     @MessageMapping("/table/{tableId}/game/ludo/start")
     public void startLudo(@DestinationVariable String tableId) { synchronized (rooms) { TableGameRoom room=room(tableId);room.ludo.start();broadcast(tableId,ludoEvent(room.ludo)); } }
     @MessageMapping("/table/{tableId}/game/ludo/roll")
     public void rollLudo(@DestinationVariable String tableId, UnoDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.ludo.roll(request.getPlayerId()))broadcast(tableId,ludoEvent(room.ludo)); } }
     @MessageMapping("/table/{tableId}/game/ludo/move")
     public void moveLudo(@DestinationVariable String tableId, LudoMoveRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.ludo.move(request.getPlayerId(),request.getTokenIndex()))broadcast(tableId,ludoEvent(room.ludo)); } }
+
     @MessageMapping("/table/{tableId}/game/chkobba/join")
     public void joinChkobba(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.chkobba.join(request.getPlayerId(),name);broadcastChkobba(tableId,room.chkobba); } }
+    @MessageMapping("/table/{tableId}/game/chkobba/leave")
+    public void leaveChkobba(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.leave(request.getPlayerId());broadcastChkobba(tableId,room.chkobba); } }
     @MessageMapping("/table/{tableId}/game/chkobba/start")
     public void startChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
     @MessageMapping("/table/{tableId}/game/chkobba/play")
     public void playChkobba(@DestinationVariable String tableId, ChkobbaPlayRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.chkobba.play(request.getPlayerId(),request.getCardId(),request.getCaptureIds())) { broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } } }
     @MessageMapping("/table/{tableId}/game/chkobba/replay")
     public void replayChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
+
     @MessageMapping("/table/{tableId}/game/rami/join")
     public void joinRami(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.rami.join(request.getPlayerId(),name);broadcastRami(tableId,room.rami); } }
+    @MessageMapping("/table/{tableId}/game/rami/leave")
+    public void leaveRami(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.leave(request.getPlayerId());broadcastRami(tableId,room.rami); } }
     @MessageMapping("/table/{tableId}/game/rami/start")
     public void startRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
     @MessageMapping("/table/{tableId}/game/rami/draw")
@@ -175,7 +211,9 @@ public class GameWebSocketController {
             messagingTemplate.convertAndSend("/topic/table/" + tableId + "/game/rami/hand/" + playerId, handEvent);
         });
     }
-    private void playBotRami(String tableId, RamiState state) { while (state.isBotTurn() && state.playBotTurn()) broadcastRami(tableId, state); }
+    private void playBotRami(String tableId, RamiState state) {
+        while (state.isBotTurn() && state.playBotTurn()) broadcastRami(tableId, state);
+    }
     private GameEvent ramiEvent(RamiState state) {
         GameEvent event = new GameEvent();
         event.setType("rami_state");
@@ -232,7 +270,7 @@ public class GameWebSocketController {
     public static class ConnectFourMoveRequest { private String playerId; private Integer column; }
     @Data public static class UnoPlayRequest { private String playerId; private String card; private String color; }
     @Data public static class UnoDrawRequest { private String playerId; }
-    @Data public static class PartyRequest { private String playerId; private String name; private String mode; }
+    @Data public static class PartyRequest { private String playerId; private String name; private String mode; private String theme; private String choice; }
     @Data public static class LudoMoveRequest { private String playerId; private Integer tokenIndex; }
     @Data public static class ChkobbaPlayRequest { private String playerId; private String cardId; private List<String> captureIds; }
     @Data public static class ChkobbaStartRequest { private Integer targetScore; private Boolean botEnabled; }
@@ -253,7 +291,7 @@ public class GameWebSocketController {
         private String winner;
         private boolean draw;
         private List<Player> unoPlayers; private List<String> unoHand; private Map<String,Integer> unoHandCounts; private String unoTopCard; private String unoTurnId; private String unoWinner; private boolean unoStarted;
-        private List<Player> partyPlayers; private String partyMode; private String partyTurnId; private String partyPrompt; private String partyAnswer; private String partyDiscussion; private boolean partyRevealed; private boolean partyStarted;
+        private List<Player> partyPlayers; private String partyMode; private String partyTheme; private String partyChoice; private String partyTurnId; private String partyPrompt; private String partyAnswer; private String partyDiscussion; private boolean partyRevealed; private boolean partyStarted;
         private List<Player> ludoPlayers; private Map<String,int[]> ludoTokens; private String ludoTurnId; private String ludoWinner; private Integer ludoDice; private boolean ludoStarted; private boolean ludoCanRoll;
         private List<Player> chkobbaPlayers; private List<ChkobbaState.Card> chkobbaTable; private List<ChkobbaState.Card> chkobbaHand; private String chkobbaTurnId; private String chkobbaWinner; private boolean chkobbaStarted; private int chkobbaTargetScore; private boolean chkobbaBotEnabled; private Map<String,Integer> chkobbaScores; private Map<String,Integer> chkobbaCapturedCounts; private Map<String,Integer> chkobbaScopaCounts; private Map<String,Integer> chkobbaRoundScores; private Map<String,Integer> chkobbaLastRoundScores; private String chkobbaLastRoundWinner; private String chkobbaLastMovePlayerId; private ChkobbaState.Card chkobbaLastMoveCard; private int chkobbaLastCaptureCount; private boolean chkobbaLastScopa; private int chkobbaDeckRemaining; private int chkobbaRound; private int chkobbaDealNumber;
         private List<Player> ramiPlayers; private List<RamiMeld> ramiMelds; private ChkobbaState.Card ramiDiscardTop; private List<ChkobbaState.Card> ramiHand; private String ramiTurnId; private String ramiWinner; private boolean ramiStarted; private boolean ramiHasDrawn; private boolean ramiBotEnabled; private int ramiDeckRemaining; private int ramiRound; private Map<String,Integer> ramiHandCounts;
@@ -274,8 +312,13 @@ public class GameWebSocketController {
     public static class RamiMeld {
         private String type;
         private List<ChkobbaState.Card> cards;
+
         public RamiMeld() {}
-        RamiMeld(String type, List<ChkobbaState.Card> cards) { this.type = type; this.cards = new ArrayList<>(cards); }
+
+        RamiMeld(String type, List<ChkobbaState.Card> cards) {
+            this.type = type;
+            this.cards = new ArrayList<>(cards);
+        }
     }
 
     private static class TableGameRoom {
@@ -292,48 +335,123 @@ public class GameWebSocketController {
 
     private static class AdvancedPartyState {
         final LinkedHashMap<String, Player> players = new LinkedHashMap<>();
-        String mode="quiz"; String turnId; int index; boolean started; boolean revealed;
-        final List<QuizCard> quiz=List.of(
-                new QuizCard("Fi Coupe du Monde 1978, Tounes reb7et anehou équipe w wallat awel équipe 3arbiya w ifri9iya reb7et match fel Mondial ?","El Mexique, 3-1.","Est-ce que l exploit hedha mazeltou أهم men les participations l okhrin mta3 Tounes ? 3lech ?"),
-                new QuizCard("Chkoun howa l gardien lwa7id fi terikh elli reb7 Ballon d'Or ?","Lev Yashin, سنة 1963.","El gardien yestahel nafs l reconnaissance kima l attaquant, walla le ?"),
-                new QuizCard("Fel foot, wa9teh joueur ma ynajjemch يكون hors-jeu مباشرة ba3d reprise ? Semmi zouz حالات.","Ba3d touche, corner walla coup de pied de but.","El VAR 7assen قانون hors-jeu walla 9تل rou7 l jeu ?"),
-                new QuizCard("Chnowa l ma3na التكتيكي mta3 faux numéro 9 ?","Attaquant يرجع lel milieu bech يجرّ défenseurs w يخلق espaces.","Tفضل équipe منظمة tactiquement walla équipe تلعب بحرية وإبداع ?"),
-                new QuizCard("Chkoun l arba3 منظمات ettounsia elli reb7ou Nobel de la Paix 2015 ?","UGTT, UTICA, Ligue Tunisienne des Droits de l Homme, w Ordre National des Avocats.","El dialogue ينجم ديما يحل أزمة سياسية كبيرة ?"),
-                new QuizCard("Chnowa l 7adث elli عادة نعتبروه الشرارة المباشرة للحرب العالمية الأولى ?","اغتيال l archiduc François-Ferdinand fi Sarajevo سنة 1914.","الحروب تبدأ بسبب حادثة واحدة walla تراكمات أعمق ?"),
-                new QuizCard("Anehou sa7ra هي الأكبر fel 3alem ken نحسبو sa7ra bقلة الأمطار, moch b الرمل ?","L Antarctique.","التغير المناخي ينجم يبدل تعريف المناطق الصحراوية مستقبلا ?"),
-                new QuizCard("Chnowa l kawkab elli nharou أطول men 3amou ?","Vénus: دورانو حول روحو أطول من دورانو حول الشمس.","هل استعمار كواكب أخرى حل واقعي walla هروب men مشاكل الأرض ?"),
-                new QuizCard("Fi جسم الإنسان, anehou organe ينجم يعاود يبني نسبة كبيرة men ro7ou ?","El kebda, le foie.","إلى أي حد الطب يلزم يتدخل باش يطوّل عمر الإنسان ?"),
-                new QuizCard("Ken ترمي قطعة نقد مرتين, chnowa احتمال تجيك face مرتين ?","1 على 4، يعني 25%.","الناس تفهم الاحتمالات مليح walla غالبا قراراتنا عاطفية ?"),
-                new QuizCard("Fi problème Monty Hall: 3 بيبان، بعد ما المقدم يفتح باب خاسر، تبدل اختيارك walla تبقى ?","تبدل: فرصة الربح تولّي 2/3، مقابل 1/3 كان تبقى.","علاش مخّنا يقاوم نتيجة صحيحة كي تكون ضد الحدس ?"),
-                new QuizCard("Chnowa Paradoxe du bateau de Thésée ?","Ken تبدل كل قطع سفينة وحدة بوحدة، السؤال: هل تبقى نفس السفينة walla تولّي حاجة أخرى ?","شنوة اللي يصنع هوية الإنسان: جسمو، ذكرياتو walla علاقاتو ?"),
-                new QuizCard("Fi théorie des jeux, chnowa dilemme du prisonnier يورّي ?","زوز أشخاص عقلانيين ينجموا يختاروا نتيجة أسوأ خاطر ما يثقوش في بعضهم.","التعاون يحتاج ثقة walla قوانين وعقوبات ?"),
-                new QuizCard("Chkoun اقترح الاختبار الشهير باش نقيّمو هل machine تنجم تبان ذكية fi conversation ?","Alan Turing سنة 1950.","إذا AI تقنعك اللي هي إنسان، هذا يعني بالضرورة اللي هي تفهم ?"),
-                new QuizCard("Chnowa العنصر الكيميائي elli رمزو W ?","Tungstène, ويتسمّى زادة Wolfram.","شنوة أهم اليوم: نحفظو المعلومة walla نعرفو كيفاش نلقاوها ونثبتوها ?"),
-                new QuizCard("Anehou nombre premier الوحيد bin 90 w 100 ?","97.","الرياضيات اكتشاف موجود من قبل walla اختراع بشري ?"),
-                new QuizCard("Chnowa أعمق نقطة معروفة fi mo7itat l ardh ?","Challenger Deep fi fosse des Mariannes.","نصرفو أكثر على استكشاف البحر walla الفضاء ?"),
-                new QuizCard("Tounes خذات استقلالها fi anehou تاريخ، وإعلان الجمهورية صار fi anehou سنة ?","20 مارس 1956؛ الجمهورية أُعلنت سنة 1957.","كيفاش يلزم الشباب اليوم يعاود يعرّف الاستقلال الحقيقي ?")
-        );
-        final List<String> truths=List.of(
-                "Sra7a: chnowa ra2y تبدّل عندك 180 درجة في آخر عامين، و3lech ?",
-                "Action: دافع دقيقة على رأي إنت شخصيا ما توافقش عليه.",
-                "Sra7a: ken fama قرار واحد للمجتمع تنجم تبدلو, chnowa يكون ?",
-                "Action: اختار موضوع خلافي واعمل عليه argument pour وargument contre.",
-                "Sra7a: وقتاش آخر مرة اعترفت اللي إنت غالط ?",
-                "Action: فسّر فكرة صعيبة في 30 ثانية كأنك تحكي لطفل عمره 8 سنين.",
-                "Sra7a: شنوّة الحاجة اللي الناس تحكم عليك فيها بالغلط ?",
-                "Action: قل حاجة باهية وصادقة على كل لاعب.",
-                "Sra7a: تختار نجاح كبير مع ضغط دائم walla حياة هادئة ونجاح عادي ?",
-                "Action: اقنع المجموعة بفكرة غريبة يختاروها هما.",
-                "Sra7a: شنوّة أهم عندك: الحرية، الأمان، walla العدالة ? 3lech ?",
-                "Action: احكي موقف في دقيقة، مرة من وجهة نظرك ومرة من وجهة نظر الشخص الآخر."
-        );
-        void join(String requestedMode,String id,String name){if(requestedMode!=null&&!started&&!requestedMode.equals(mode)){mode=requestedMode;players.clear();}if(players.containsKey(id))players.put(id,new Player(id,name));else if(!started&&players.size()<4)players.put(id,new Player(id,name));}
-        void start(String requestedMode){if(requestedMode!=null)mode=requestedMode;if(players.size()<2)return;started=true;revealed=false;index=0;turnId=players.keySet().iterator().next();}
-        boolean reveal(String id){if(!started||!"quiz".equals(mode)||!Objects.equals(turnId,id))return false;revealed=true;return true;}
-        void next(String id){if(!started||!Objects.equals(turnId,id)||("quiz".equals(mode)&&!revealed))return;List<String> ids=new ArrayList<>(players.keySet());turnId=ids.get((ids.indexOf(id)+1)%ids.size());index=(index+1)%("quiz".equals(mode)?quiz.size():truths.size());revealed=false;}
-        String prompt(){if(!started)return null;return "quiz".equals(mode)?quiz.get(index%quiz.size()).question():truths.get(index%truths.size());}
-        String answer(){return started&&revealed&&"quiz".equals(mode)?quiz.get(index%quiz.size()).answer():null;}
-        String discussion(){return started&&revealed&&"quiz".equals(mode)?quiz.get(index%quiz.size()).discussion():null;}
+        String mode = "quiz";
+        String theme = "intimate";
+        String turnId;
+        String currentChoice;
+        boolean started;
+        boolean revealed;
+
+        String currentPrompt;
+        String currentAnswer;
+        String currentDiscussion;
+
+        void join(String requestedMode, String id, String name) {
+            if (requestedMode != null && !requestedMode.isBlank()) {
+                this.mode = requestedMode;
+            }
+            if (id != null && !id.isBlank() && name != null && !name.isBlank()) {
+                players.put(id, new Player(id, name));
+            }
+        }
+
+        void leave(String id) {
+            if (id != null) players.remove(id);
+            if (players.isEmpty()) {
+                reset();
+            } else if (Objects.equals(turnId, id)) {
+                turnId = players.keySet().iterator().next();
+                revealed = false;
+                currentChoice = null;
+                currentPrompt = null;
+                currentAnswer = null;
+                currentDiscussion = null;
+            }
+        }
+
+        void reset() {
+            started = false;
+            revealed = false;
+            currentChoice = null;
+            turnId = null;
+            currentPrompt = null;
+            currentAnswer = null;
+            currentDiscussion = null;
+        }
+
+        void start(String requestedMode, String requestedTheme, com.taktak.service.PartyQuestionService questionService) {
+            if (requestedMode != null && !requestedMode.isBlank()) this.mode = requestedMode;
+            if (requestedTheme != null && !requestedTheme.isBlank()) this.theme = requestedTheme;
+            if (players.isEmpty()) return;
+
+            started = true;
+            revealed = false;
+            currentChoice = null;
+            turnId = players.keySet().iterator().next();
+            fetchQuestion(questionService);
+        }
+
+        boolean chooseChoice(String id, String choice, com.taktak.service.PartyQuestionService questionService) {
+            if (!started || !"truth".equals(mode) || !Objects.equals(turnId, id)) return false;
+            this.currentChoice = choice;
+            fetchQuestion(questionService);
+            return true;
+        }
+
+        boolean reveal(String id) {
+            if (!started || !"quiz".equals(mode) || !Objects.equals(turnId, id)) return false;
+            revealed = true;
+            return true;
+        }
+
+        void next(String id, com.taktak.service.PartyQuestionService questionService) {
+            if (!started || !Objects.equals(turnId, id)) return;
+            List<String> ids = new ArrayList<>(players.keySet());
+            if (ids.isEmpty()) return;
+            int currIdx = ids.indexOf(id);
+            turnId = ids.get((currIdx + 1) % ids.size());
+            revealed = false;
+            currentChoice = null;
+            fetchQuestion(questionService);
+        }
+
+        void fetchQuestion(com.taktak.service.PartyQuestionService questionService) {
+            if (!started || questionService == null) return;
+            if ("quiz".equals(mode)) {
+                var q = questionService.getRandomQuizQuestion();
+                this.currentPrompt = q.getPrompt();
+                this.currentAnswer = q.getAnswer();
+                this.currentDiscussion = q.getDiscussion();
+            } else {
+                if (currentChoice == null) {
+                    this.currentPrompt = "👉 Choix requis : VÉRITÉ 💬 ou ACTION ⚡ ?";
+                    this.currentAnswer = null;
+                    this.currentDiscussion = null;
+                } else if ("truth".equals(currentChoice)) {
+                    var q = questionService.getRandomTruth(theme);
+                    this.currentPrompt = q.getPrompt();
+                    this.currentAnswer = null;
+                    this.currentDiscussion = null;
+                } else {
+                    var q = questionService.getRandomAction(theme);
+                    this.currentPrompt = q.getPrompt();
+                    this.currentAnswer = null;
+                    this.currentDiscussion = null;
+                }
+            }
+        }
+
+        String prompt() {
+            return started ? currentPrompt : null;
+        }
+
+        String answer() {
+            return started && revealed && "quiz".equals(mode) ? currentAnswer : null;
+        }
+
+        String discussion() {
+            return started && revealed && "quiz".equals(mode) ? currentDiscussion : null;
+        }
     }
 
     private static class PartyState {
@@ -411,6 +529,12 @@ public class GameWebSocketController {
             if (yellowPlayer != null && yellowPlayer.id.equals(playerId)) { yellowPlayer = new Player(playerId, name); return; }
             if (redPlayer == null) redPlayer = new Player(playerId, name);
             else if (yellowPlayer == null) yellowPlayer = new Player(playerId, name);
+        }
+
+        void leave(String playerId) {
+            if (redPlayer != null && Objects.equals(redPlayer.id, playerId)) redPlayer = null;
+            if (yellowPlayer != null && Objects.equals(yellowPlayer.id, playerId)) yellowPlayer = null;
+            if (redPlayer == null && yellowPlayer == null) reset();
         }
 
         boolean play(String playerId, Integer column) {

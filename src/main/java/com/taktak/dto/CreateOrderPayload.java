@@ -17,6 +17,7 @@ public class CreateOrderPayload {
         private String productName;
         private Integer quantity;
         private BigDecimal unitPrice;
+        private java.util.Map<String, String> selectedOptions;
         private String notes;
     }
 }
