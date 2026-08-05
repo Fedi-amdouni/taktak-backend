@@ -23,14 +23,6 @@ public class WaiterController {
         return ResponseEntity.ok(waiterService.getActiveWaiters(cafeSlug));
     }
 
-    @PostMapping("/cafes/{cafeSlug}/waiters/login")
-    public ResponseEntity<WaiterDTO> loginByPin(
-            @PathVariable String cafeSlug,
-            @RequestBody WaiterLoginRequest request
-    ) {
-        return ResponseEntity.ok(waiterService.loginByPin(cafeSlug, request.getPinCode()));
-    }
-
     @PostMapping("/waiters/{waiterId}/assign-tables")
     public ResponseEntity<WaiterDTO> assignTables(
             @PathVariable String waiterId,

@@ -1,9 +1,4 @@
-.git
-.github
-.idea
-.vscode
 target
 *.log
-.env
-.env.*
-!.env.example
+.idea
+.git

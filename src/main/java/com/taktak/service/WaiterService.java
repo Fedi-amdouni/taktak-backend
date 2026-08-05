@@ -10,6 +10,7 @@ import com.taktak.repository.WaiterRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class WaiterService {
+    private static final BCryptPasswordEncoder PIN_ENCODER = new BCryptPasswordEncoder(12);
 
     private final WaiterRepository waiterRepository;
     private final TableAssignmentRepository tableAssignmentRepository;
@@ -41,11 +43,18 @@ public class WaiterService {
                 .orElseThrow(() -> new RuntimeException("Café non trouvé : " + cafeSlug));
 
         String cleanPin = pinCode != null ? pinCode.trim() : "";
-        Waiter waiter = waiterRepository.findByCafeIdAndPinCodeAndIsActiveTrue(cafe.getId(), cleanPin)
+        Waiter waiter = waiterRepository.findByCafeIdAndIsActiveTrue(cafe.getId()).stream()
+                .filter(candidate -> pinMatches(cleanPin, candidate.getPinCode()))
+                .findFirst()
                 .orElseThrow(() -> {
-                    log.warn("Échec connexion PIN '{}' pour le café {}", cleanPin, cafeSlug);
+                    log.warn("Échec connexion PIN pour le café {}", cafeSlug);
                     return new RuntimeException("Code PIN invalide pour ce café");
                 });
+
+        if (!waiter.getPinCode().startsWith("$2")) {
+            waiter.setPinCode(PIN_ENCODER.encode(cleanPin));
+            waiterRepository.save(waiter);
+        }
 
         log.info("Connexion réussie pour le serveur {} (ID: {})", waiter.getName(), waiter.getId());
         return toDTO(waiter);
@@ -83,13 +92,13 @@ public class WaiterService {
                 .orElseGet(() -> Waiter.builder()
                         .cafeId(cafe.getId())
                         .name(name)
-                        .pinCode(pinCode.trim())
+                        .pinCode(PIN_ENCODER.encode(pinCode.trim()))
                         .shiftHours(shiftHours)
                         .isActive(true)
                         .build());
 
         waiter.setName(name);
-        waiter.setPinCode(pinCode.trim());
+        waiter.setPinCode(PIN_ENCODER.encode(pinCode.trim()));
         waiter.setShiftHours(shiftHours);
         waiter.setIsActive(true);
         Waiter saved = waiterRepository.save(waiter);
@@ -104,7 +113,7 @@ public class WaiterService {
                 .orElseThrow(() -> new RuntimeException("Serveur non trouvé"));
 
         if (name != null) waiter.setName(name);
-        if (pinCode != null && !pinCode.isBlank()) waiter.setPinCode(pinCode.trim());
+        if (pinCode != null && !pinCode.isBlank()) waiter.setPinCode(PIN_ENCODER.encode(pinCode.trim()));
         if (shiftHours != null) waiter.setShiftHours(shiftHours);
         if (isActive != null) waiter.setIsActive(isActive);
 
@@ -130,10 +139,17 @@ public class WaiterService {
                 .id(waiter.getId().toString())
                 .cafeId(waiter.getCafeId().toString())
                 .name(waiter.getName())
-                .pinCode(waiter.getPinCode())
                 .shiftHours(waiter.getShiftHours())
                 .isActive(waiter.getIsActive())
                 .assignedTables(tables)
                 .build();
+    }
+
+    private boolean pinMatches(String candidate, String stored) {
+        if (candidate.isBlank() || stored == null) return false;
+        if (stored.startsWith("$2")) return PIN_ENCODER.matches(candidate, stored);
+        return java.security.MessageDigest.isEqual(
+                candidate.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                stored.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 }

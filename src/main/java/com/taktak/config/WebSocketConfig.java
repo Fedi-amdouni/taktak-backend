@@ -7,13 +7,11 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
-import java.util.Arrays;
-
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Value("${taktak.cors.allowed-origins:http://localhost:3000}")
+    @Value("${TAKTAK_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}")
     private String allowedOrigins;
 
     @Override
@@ -25,15 +23,16 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns(Arrays.stream(allowedOrigins.split(","))
-                        .map(String::trim)
-                        .filter(origin -> !origin.isEmpty())
-                        .toArray(String[]::new));
-        registry.addEndpoint("/ws-sockjs")
-                .setAllowedOriginPatterns(Arrays.stream(allowedOrigins.split(","))
-                        .map(String::trim)
-                        .filter(origin -> !origin.isEmpty())
-                        .toArray(String[]::new))
+                .setAllowedOrigins(origins())
                 .withSockJS();
+        registry.addEndpoint("/ws")
+                .setAllowedOrigins(origins());
+    }
+
+    private String[] origins() {
+        return java.util.Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toArray(String[]::new);
     }
 }
