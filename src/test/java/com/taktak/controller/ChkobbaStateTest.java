@@ -73,6 +73,19 @@ class ChkobbaStateTest {
     }
 
     @Test
+    void startsAMatchWithTargetScoreAndBot() {
+        ChkobbaState state = new ChkobbaState();
+        state.join("p1", "Ali");
+
+        state.start(11, true);
+
+        assertTrue(state.started);
+        assertEquals(11, state.targetScore);
+        assertTrue(state.players.containsKey(ChkobbaState.BOT_ID));
+        assertEquals(2, state.players.size());
+    }
+
+    @Test
     void botCanPlayItsTurnAndPassControlBackToTheHuman() {
         ChkobbaState state = new ChkobbaState();
         state.join("p1", "Ali");

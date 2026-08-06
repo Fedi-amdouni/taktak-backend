@@ -28,6 +28,6 @@ logging:
 
 taktak:
   auth:
-    secret: ${TAKTAK_AUTH_SECRET}
-    admin-password: ${TAKTAK_ADMIN_PASSWORD}
+    secret: ${TAKTAK_AUTH_SECRET:taktak_super_secret_jwt_key_2026_dev_mode_secret}
+    admin-password: ${TAKTAK_ADMIN_PASSWORD:admin123}
     token-ttl-hours: ${TAKTAK_TOKEN_TTL_HOURS:12}

@@ -130,6 +130,7 @@ class OrderServiceStatusTransitionTest {
     private static Stream<Arguments> allowedTransitions() {
         return Stream.of(
                 Arguments.of(OrderStatus.RECEIVED, OrderStatus.PREPARING),
+                Arguments.of(OrderStatus.RECEIVED, OrderStatus.CANCELLED),
                 Arguments.of(OrderStatus.PREPARING, OrderStatus.READY),
                 Arguments.of(OrderStatus.READY, OrderStatus.PICKED_UP),
                 Arguments.of(OrderStatus.PICKED_UP, OrderStatus.SERVED),

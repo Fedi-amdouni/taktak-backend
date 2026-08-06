@@ -100,7 +100,7 @@ public class GameWebSocketController {
     @MessageMapping("/table/{tableId}/game/uno/join")
     public void joinUno(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName()); if(name==null)return; TableGameRoom room=room(tableId); room.uno.join(request.getPlayerId(),name); broadcastUno(tableId, room.uno); } }
     @MessageMapping("/table/{tableId}/game/uno/leave")
-    public void leaveUno(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.uno.leave(request.getPlayerId()); broadcastUno(tableId, room.uno); } }
+    public void leaveUno(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(request!=null) room.uno.leave(request.getPlayerId()); boolean noHuman = room.uno.players.keySet().stream().noneMatch(id -> !id.startsWith("bot_")); if (noHuman || room.uno.started) { room.uno = new UnoState(); } broadcastUno(tableId, room.uno); } }
     @MessageMapping("/table/{tableId}/game/uno/start")
     public void startUno(@DestinationVariable String tableId) { synchronized (rooms) { TableGameRoom room=room(tableId); room.uno.start(); broadcastUno(tableId,room.uno); } }
     @MessageMapping("/table/{tableId}/game/uno/play")
@@ -111,7 +111,7 @@ public class GameWebSocketController {
     @MessageMapping("/table/{tableId}/game/party/join")
     public void joinParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { String name=cleanName(request.getName()); if(name==null)return; TableGameRoom room=room(tableId); room.party.join(request.getMode(),request.getPlayerId(),name); broadcast(tableId,partyEvent(room.party)); } }
     @MessageMapping("/table/{tableId}/game/party/leave")
-    public void leaveParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.leave(request.getPlayerId()); broadcast(tableId,partyEvent(room.party)); } }
+    public void leaveParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(request!=null) room.party.leave(request.getPlayerId()); boolean noHuman = room.party.players.keySet().stream().noneMatch(id -> !id.startsWith("bot_")); if (noHuman || room.party.started) { room.party = new AdvancedPartyState(); } broadcast(tableId,partyEvent(room.party)); } }
     @MessageMapping("/table/{tableId}/game/party/start")
     public void startParty(@DestinationVariable String tableId, PartyRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.start(request.getMode(), request.getTheme(), partyQuestionService); broadcast(tableId,partyEvent(room.party)); } }
     @MessageMapping("/table/{tableId}/game/party/choice")
@@ -124,41 +124,47 @@ public class GameWebSocketController {
     public void resetParty(@DestinationVariable String tableId) { synchronized (rooms) { TableGameRoom room=room(tableId); room.party.reset(); broadcast(tableId,partyEvent(room.party)); } }
 
     @MessageMapping("/table/{tableId}/game/ludo/join")
-    public void joinLudo(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.ludo.join(request.getPlayerId(),name);broadcast(tableId,ludoEvent(room.ludo)); } }
+    public void joinLudo(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); String name=cleanName(request.getName()); if(name!=null && request.getPlayerId()!=null) room.ludo.join(request.getPlayerId(),name); broadcast(tableId,ludoEvent(room.ludo)); } }
     @MessageMapping("/table/{tableId}/game/ludo/leave")
-    public void leaveLudo(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.ludo.leave(request.getPlayerId());broadcast(tableId,ludoEvent(room.ludo)); } }
+    public void leaveLudo(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(request!=null) room.ludo.leave(request.getPlayerId()); boolean noHuman = room.ludo.players.keySet().stream().noneMatch(id -> !id.startsWith("bot_")); if (noHuman || room.ludo.started) { room.ludo = new LudoState(); } broadcast(tableId,ludoEvent(room.ludo)); } }
     @MessageMapping("/table/{tableId}/game/ludo/start")
-    public void startLudo(@DestinationVariable String tableId) { synchronized (rooms) { TableGameRoom room=room(tableId);room.ludo.start();broadcast(tableId,ludoEvent(room.ludo)); } }
+    public void startLudo(@DestinationVariable String tableId, LudoStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); room.ludo.start(request != null && Boolean.TRUE.equals(request.getBotEnabled())); broadcast(tableId,ludoEvent(room.ludo)); playBotLudo(tableId, room.ludo); } }
     @MessageMapping("/table/{tableId}/game/ludo/roll")
-    public void rollLudo(@DestinationVariable String tableId, UnoDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.ludo.roll(request.getPlayerId()))broadcast(tableId,ludoEvent(room.ludo)); } }
+    public void rollLudo(@DestinationVariable String tableId, UnoDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(room.ludo.roll(request.getPlayerId())) { broadcast(tableId,ludoEvent(room.ludo)); playBotLudo(tableId, room.ludo); } } }
     @MessageMapping("/table/{tableId}/game/ludo/move")
-    public void moveLudo(@DestinationVariable String tableId, LudoMoveRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.ludo.move(request.getPlayerId(),request.getTokenIndex()))broadcast(tableId,ludoEvent(room.ludo)); } }
+    public void moveLudo(@DestinationVariable String tableId, LudoMoveRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(room.ludo.move(request.getPlayerId(),request.getTokenIndex())) { broadcast(tableId,ludoEvent(room.ludo)); playBotLudo(tableId, room.ludo); } } }
+    @MessageMapping("/table/{tableId}/game/ludo/pass")
+    public void passLudo(@DestinationVariable String tableId, UnoDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(room.ludo.passNoMove(request.getPlayerId())) { broadcast(tableId,ludoEvent(room.ludo)); playBotLudo(tableId, room.ludo); } } }
 
     @MessageMapping("/table/{tableId}/game/chkobba/join")
     public void joinChkobba(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.chkobba.join(request.getPlayerId(),name);broadcastChkobba(tableId,room.chkobba); } }
     @MessageMapping("/table/{tableId}/game/chkobba/leave")
-    public void leaveChkobba(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.leave(request.getPlayerId());broadcastChkobba(tableId,room.chkobba); } }
+    public void leaveChkobba(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(request!=null) room.chkobba.leave(request.getPlayerId()); boolean noHuman = room.chkobba.players.keySet().stream().noneMatch(id -> !id.startsWith("bot_")); if (noHuman || room.chkobba.started) { room.chkobba = new ChkobbaState(); } broadcastChkobba(tableId,room.chkobba); } }
     @MessageMapping("/table/{tableId}/game/chkobba/start")
-    public void startChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
+    public void startChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()), request != null && Boolean.TRUE.equals(request.getTeamMode()), request == null ? null : request.getBotPartnerId());broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
     @MessageMapping("/table/{tableId}/game/chkobba/play")
     public void playChkobba(@DestinationVariable String tableId, ChkobbaPlayRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.chkobba.play(request.getPlayerId(),request.getCardId(),request.getCaptureIds())) { broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } } }
     @MessageMapping("/table/{tableId}/game/chkobba/replay")
-    public void replayChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
+    public void replayChkobba(@DestinationVariable String tableId, ChkobbaStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.chkobba.start(request == null ? null : request.getTargetScore(), request != null && Boolean.TRUE.equals(request.getBotEnabled()), request != null && Boolean.TRUE.equals(request.getTeamMode()), request == null ? null : request.getBotPartnerId());broadcastChkobba(tableId,room.chkobba);playBotTurns(tableId,room.chkobba); } }
 
     @MessageMapping("/table/{tableId}/game/rami/join")
     public void joinRami(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { String name=cleanName(request.getName());if(name==null)return;TableGameRoom room=room(tableId);room.rami.join(request.getPlayerId(),name);broadcastRami(tableId,room.rami); } }
     @MessageMapping("/table/{tableId}/game/rami/leave")
-    public void leaveRami(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.leave(request.getPlayerId());broadcastRami(tableId,room.rami); } }
+    public void leaveRami(@DestinationVariable String tableId, RouletteJoinRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId); if(request!=null) room.rami.leave(request.getPlayerId()); boolean noHuman = room.rami.players.keySet().stream().noneMatch(id -> !id.startsWith("bot_")); if (noHuman || room.rami.started) { room.rami = new RamiState(); } broadcastRami(tableId,room.rami); } }
     @MessageMapping("/table/{tableId}/game/rami/start")
-    public void startRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
+    public void startRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()), request == null ? null : request.getMinMeldScore());broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
     @MessageMapping("/table/{tableId}/game/rami/draw")
     public void drawRami(@DestinationVariable String tableId, RamiDrawRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.rami.draw(request.getPlayerId(),request.getSource())){broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami);} } }
     @MessageMapping("/table/{tableId}/game/rami/lay")
     public void layRami(@DestinationVariable String tableId, RamiCardsRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.rami.lay(request.getPlayerId(),request.getCardIds())){broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami);} } }
     @MessageMapping("/table/{tableId}/game/rami/discard")
     public void discardRami(@DestinationVariable String tableId, RamiCardRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(room.rami.discard(request.getPlayerId(),request.getCardId())){broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami);} } }
+    @MessageMapping("/table/{tableId}/game/rami/replace-joker")
+    public void replaceRamiJoker(@DestinationVariable String tableId, RamiJokerRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(request != null && room.rami.replaceJoker(request.getPlayerId(), request.getMeldIndex(), request.getJokerId(), request.getReplacementCardId())) broadcastRami(tableId,room.rami); } }
+    @MessageMapping("/table/{tableId}/game/rami/extend-meld")
+    public void extendRamiMeld(@DestinationVariable String tableId, RamiExtendRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);if(request != null && room.rami.extendMeld(request.getPlayerId(), request.getMeldIndex(), request.getCardIds())) broadcastRami(tableId,room.rami); } }
     @MessageMapping("/table/{tableId}/game/rami/replay")
-    public void replayRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()));broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
+    public void replayRami(@DestinationVariable String tableId, RamiStartRequest request) { synchronized (rooms) { TableGameRoom room=room(tableId);room.rami.start(request != null && Boolean.TRUE.equals(request.getBotEnabled()), request == null ? null : request.getMinMeldScore());broadcastRami(tableId,room.rami);playBotRami(tableId,room.rami); } }
 
     private TableGameRoom room(String tableId) {
         return rooms.computeIfAbsent(tableId, ignored -> new TableGameRoom());
@@ -187,7 +193,7 @@ public class GameWebSocketController {
         return event;
     }
     private void broadcastUno(String tableId, UnoState state) { broadcast(tableId, unoEvent(state)); state.hands.forEach((playerId, hand) -> { GameEvent handEvent=new GameEvent(); handEvent.setType("uno_hand"); handEvent.setUnoHand(hand); messagingTemplate.convertAndSend("/topic/table/"+tableId+"/game/uno/hand/"+playerId, handEvent); }); }
-    private GameEvent unoEvent(UnoState state) { GameEvent event=new GameEvent(); event.setType("uno_state"); event.setUnoPlayers(new ArrayList<>(state.players.values())); event.setUnoHandCounts(state.hands.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size()))); event.setUnoTopCard(state.topCard); event.setUnoTurnId(state.turnId); event.setUnoWinner(state.winner); event.setUnoStarted(state.started); return event; }
+    private GameEvent unoEvent(UnoState state) { GameEvent event=new GameEvent(); event.setType("uno_state"); event.setUnoPlayers(new ArrayList<>(state.players.values())); event.setUnoHandCounts(state.hands.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size()))); event.setUnoTopCard(state.topCard); event.setUnoActiveColor(state.activeColor()); event.setUnoTurnId(state.turnId); event.setUnoWinner(state.winner); event.setUnoStarted(state.started); return event; }
     private GameEvent partyEvent(AdvancedPartyState state) { GameEvent event=new GameEvent(); event.setType("party_state"); event.setPartyMode(state.mode); event.setPartyPlayers(new ArrayList<>(state.players.values())); event.setPartyTurnId(state.turnId); event.setPartyPrompt(state.prompt()); event.setPartyAnswer(state.answer()); event.setPartyDiscussion(state.discussion()); event.setPartyRevealed(state.revealed); event.setPartyStarted(state.started); return event; }
     private GameEvent ludoEvent(LudoState state) { GameEvent event=new GameEvent();event.setType("ludo_state");event.setLudoPlayers(new ArrayList<>(state.players.values()));event.setLudoTokens(state.tokens);event.setLudoTurnId(state.turnId);event.setLudoWinner(state.winner);event.setLudoDice(state.dice);event.setLudoStarted(state.started);event.setLudoCanRoll(state.canRoll);return event; }
     private void broadcastChkobba(String tableId, ChkobbaState state) {
@@ -200,7 +206,17 @@ public class GameWebSocketController {
         });
     }
     private void playBotTurns(String tableId, ChkobbaState state) {
-        while (state.isBotTurn() && state.playBotTurn()) broadcastChkobba(tableId, state);
+        if (!state.isBotTurn()) return;
+        botScheduler.schedule(() -> {
+            synchronized (rooms) {
+                if (state.isBotTurn() && state.playBotTurn()) {
+                    broadcastChkobba(tableId, state);
+                    if (state.isBotTurn()) {
+                        playBotTurns(tableId, state);
+                    }
+                }
+            }
+        }, 1600, java.util.concurrent.TimeUnit.MILLISECONDS);
     }
     private void broadcastRami(String tableId, RamiState state) {
         broadcast(tableId, ramiEvent(state));
@@ -211,8 +227,34 @@ public class GameWebSocketController {
             messagingTemplate.convertAndSend("/topic/table/" + tableId + "/game/rami/hand/" + playerId, handEvent);
         });
     }
+    private final java.util.concurrent.ScheduledExecutorService botScheduler = java.util.concurrent.Executors.newScheduledThreadPool(2);
+
     private void playBotRami(String tableId, RamiState state) {
-        while (state.isBotTurn() && state.playBotTurn()) broadcastRami(tableId, state);
+        if (!state.isBotTurn()) return;
+        botScheduler.schedule(() -> {
+            synchronized (rooms) {
+                if (state.isBotTurn() && state.playBotTurn()) {
+                    broadcastRami(tableId, state);
+                    if (state.isBotTurn()) {
+                        playBotRami(tableId, state);
+                    }
+                }
+            }
+        }, 850, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+
+    private void playBotLudo(String tableId, LudoState state) {
+        if (!state.isBotTurn()) return;
+        botScheduler.schedule(() -> {
+            synchronized (rooms) {
+                if (state.isBotTurn() && state.playBotTurn()) {
+                    broadcast(tableId, ludoEvent(state));
+                    if (state.isBotTurn()) {
+                        playBotLudo(tableId, state);
+                    }
+                }
+            }
+        }, 1100, java.util.concurrent.TimeUnit.MILLISECONDS);
     }
     private GameEvent ramiEvent(RamiState state) {
         GameEvent event = new GameEvent();
@@ -227,6 +269,10 @@ public class GameWebSocketController {
         event.setRamiBotEnabled(state.botEnabled);
         event.setRamiDeckRemaining(state.drawPile.size());
         event.setRamiRound(state.round);
+        event.setRamiScores(new LinkedHashMap<>(state.scores));
+        event.setRamiMinMeldScore(state.minMeldScore);
+        event.setRamiPlayerHasLaid(new LinkedHashMap<>(state.playerHasLaid));
+        event.setRamiJokerReplacements(new LinkedHashMap<>(state.jokerReplacements));
         event.setRamiHandCounts(state.hands.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size(), (left, right) -> right, LinkedHashMap::new)));
         return event;
     }
@@ -240,6 +286,11 @@ public class GameWebSocketController {
         event.setChkobbaStarted(state.started);
         event.setChkobbaTargetScore(state.targetScore);
         event.setChkobbaBotEnabled(state.botEnabled);
+        event.setChkobbaTeamMode(state.teamMode);
+        event.setChkobbaTeamByPlayerId(new LinkedHashMap<>(state.teamByPlayerId));
+        event.setChkobbaTeamScores(new LinkedHashMap<>(state.teamScores));
+        event.setChkobbaWinnerTeam(state.winnerTeam);
+        event.setChkobbaBotPartnerId(state.botPartnerId);
         event.setChkobbaScores(new LinkedHashMap<>(state.scores));
         event.setChkobbaCapturedCounts(state.captured.entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().size(), (left, right) -> right, LinkedHashMap::new)));
         event.setChkobbaScopaCounts(new LinkedHashMap<>(state.scopaCounts));
@@ -271,13 +322,16 @@ public class GameWebSocketController {
     @Data public static class UnoPlayRequest { private String playerId; private String card; private String color; }
     @Data public static class UnoDrawRequest { private String playerId; }
     @Data public static class PartyRequest { private String playerId; private String name; private String mode; private String theme; private String choice; }
+    @Data public static class LudoStartRequest { private Boolean botEnabled; }
     @Data public static class LudoMoveRequest { private String playerId; private Integer tokenIndex; }
     @Data public static class ChkobbaPlayRequest { private String playerId; private String cardId; private List<String> captureIds; }
-    @Data public static class ChkobbaStartRequest { private Integer targetScore; private Boolean botEnabled; }
+    @Data public static class ChkobbaStartRequest { private Integer targetScore; private Boolean botEnabled; private Boolean teamMode; private String botPartnerId; }
     @Data public static class RamiDrawRequest { private String playerId; private String source; }
-    @Data public static class RamiStartRequest { private Boolean botEnabled; }
+    @Data public static class RamiStartRequest { private Boolean botEnabled; private Integer minMeldScore; }
     @Data public static class RamiCardsRequest { private String playerId; private List<String> cardIds; }
     @Data public static class RamiCardRequest { private String playerId; private String cardId; }
+    @Data public static class RamiJokerRequest { private String playerId; private int meldIndex; private String jokerId; private String replacementCardId; }
+    @Data public static class RamiExtendRequest { private String playerId; private int meldIndex; private List<String> cardIds; }
     @Data
     public static class GameEvent {
         private String type;
@@ -290,11 +344,11 @@ public class GameWebSocketController {
         private String turn;
         private String winner;
         private boolean draw;
-        private List<Player> unoPlayers; private List<String> unoHand; private Map<String,Integer> unoHandCounts; private String unoTopCard; private String unoTurnId; private String unoWinner; private boolean unoStarted;
+        private List<Player> unoPlayers; private List<String> unoHand; private Map<String,Integer> unoHandCounts; private String unoTopCard; private String unoActiveColor; private String unoTurnId; private String unoWinner; private boolean unoStarted;
         private List<Player> partyPlayers; private String partyMode; private String partyTheme; private String partyChoice; private String partyTurnId; private String partyPrompt; private String partyAnswer; private String partyDiscussion; private boolean partyRevealed; private boolean partyStarted;
         private List<Player> ludoPlayers; private Map<String,int[]> ludoTokens; private String ludoTurnId; private String ludoWinner; private Integer ludoDice; private boolean ludoStarted; private boolean ludoCanRoll;
-        private List<Player> chkobbaPlayers; private List<ChkobbaState.Card> chkobbaTable; private List<ChkobbaState.Card> chkobbaHand; private String chkobbaTurnId; private String chkobbaWinner; private boolean chkobbaStarted; private int chkobbaTargetScore; private boolean chkobbaBotEnabled; private Map<String,Integer> chkobbaScores; private Map<String,Integer> chkobbaCapturedCounts; private Map<String,Integer> chkobbaScopaCounts; private Map<String,Integer> chkobbaRoundScores; private Map<String,Integer> chkobbaLastRoundScores; private String chkobbaLastRoundWinner; private String chkobbaLastMovePlayerId; private ChkobbaState.Card chkobbaLastMoveCard; private int chkobbaLastCaptureCount; private boolean chkobbaLastScopa; private int chkobbaDeckRemaining; private int chkobbaRound; private int chkobbaDealNumber;
-        private List<Player> ramiPlayers; private List<RamiMeld> ramiMelds; private ChkobbaState.Card ramiDiscardTop; private List<ChkobbaState.Card> ramiHand; private String ramiTurnId; private String ramiWinner; private boolean ramiStarted; private boolean ramiHasDrawn; private boolean ramiBotEnabled; private int ramiDeckRemaining; private int ramiRound; private Map<String,Integer> ramiHandCounts;
+        private List<Player> chkobbaPlayers; private List<ChkobbaState.Card> chkobbaTable; private List<ChkobbaState.Card> chkobbaHand; private String chkobbaTurnId; private String chkobbaWinner; private boolean chkobbaStarted; private int chkobbaTargetScore; private boolean chkobbaBotEnabled; private boolean chkobbaTeamMode; private Map<String,String> chkobbaTeamByPlayerId; private Map<String,Integer> chkobbaTeamScores; private String chkobbaWinnerTeam; private String chkobbaBotPartnerId; private Map<String,Integer> chkobbaScores; private Map<String,Integer> chkobbaCapturedCounts; private Map<String,Integer> chkobbaScopaCounts; private Map<String,Integer> chkobbaRoundScores; private Map<String,Integer> chkobbaLastRoundScores; private String chkobbaLastRoundWinner; private String chkobbaLastMovePlayerId; private ChkobbaState.Card chkobbaLastMoveCard; private int chkobbaLastCaptureCount; private boolean chkobbaLastScopa; private int chkobbaDeckRemaining; private int chkobbaRound; private int chkobbaDealNumber;
+        private List<Player> ramiPlayers; private List<RamiMeld> ramiMelds; private ChkobbaState.Card ramiDiscardTop; private List<ChkobbaState.Card> ramiHand; private String ramiTurnId; private String ramiWinner; private boolean ramiStarted; private boolean ramiHasDrawn; private boolean ramiBotEnabled; private int ramiDeckRemaining; private int ramiRound; private Map<String,Integer> ramiScores; private Map<String,Integer> ramiHandCounts; private Integer ramiMinMeldScore; private Map<String,Boolean> ramiPlayerHasLaid; private Map<String, RamiState.JokerReplacement> ramiJokerReplacements;
 
         static GameEvent rouletteSpin(String loser, long startsAt) {
             GameEvent event = new GameEvent();
@@ -323,12 +377,12 @@ public class GameWebSocketController {
 
     private static class TableGameRoom {
         final Map<String, String> roulettePlayers = new LinkedHashMap<>();
-        final ConnectFourState connectFour = new ConnectFourState();
-        final UnoState uno = new UnoState();
-        final AdvancedPartyState party = new AdvancedPartyState();
-        final LudoState ludo = new LudoState();
-        final ChkobbaState chkobba = new ChkobbaState();
-        final RamiState rami = new RamiState();
+        ConnectFourState connectFour = new ConnectFourState();
+        UnoState uno = new UnoState();
+        AdvancedPartyState party = new AdvancedPartyState();
+        LudoState ludo = new LudoState();
+        ChkobbaState chkobba = new ChkobbaState();
+        RamiState rami = new RamiState();
     }
 
     private record QuizCard(String question, String answer, String discussion) {}
@@ -405,13 +459,16 @@ public class GameWebSocketController {
         }
 
         void next(String id, com.taktak.service.PartyQuestionService questionService) {
-            if (!started || !Objects.equals(turnId, id)) return;
+            if (!started || players.isEmpty()) return;
             List<String> ids = new ArrayList<>(players.keySet());
-            if (ids.isEmpty()) return;
-            int currIdx = ids.indexOf(id);
+            int currIdx = ids.indexOf(turnId);
+            if (currIdx == -1) currIdx = 0;
             turnId = ids.get((currIdx + 1) % ids.size());
             revealed = false;
             currentChoice = null;
+            currentPrompt = null;
+            currentAnswer = null;
+            currentDiscussion = null;
             fetchQuestion(questionService);
         }
 

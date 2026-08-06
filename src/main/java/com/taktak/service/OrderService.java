@@ -108,12 +108,21 @@ public class OrderService {
             return order;
         }
 
-        OrderStatus expectedStatus = ALLOWED_TRANSITIONS.get(currentStatus);
-        if (expectedStatus != newStatus) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Transition de statut invalide: " + currentStatus + " -> " + newStatus
-            );
+        if (newStatus == OrderStatus.CANCELLED) {
+            if (currentStatus != OrderStatus.RECEIVED) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Impossible d'annuler une commande déjà en préparation ou servie"
+                );
+            }
+        } else {
+            OrderStatus expectedStatus = ALLOWED_TRANSITIONS.get(currentStatus);
+            if (expectedStatus != newStatus) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Transition de statut invalide: " + currentStatus + " -> " + newStatus
+                );
+            }
         }
 
         LocalDateTime now = LocalDateTime.now();

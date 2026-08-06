@@ -32,6 +32,8 @@ final class ChkobbaState {
     final List<Card> table = new ArrayList<>();
     final Map<String, List<Card>> captured = new LinkedHashMap<>();
     final Map<String, Integer> scores = new LinkedHashMap<>();
+    final Map<String, String> teamByPlayerId = new LinkedHashMap<>();
+    final Map<String, Integer> teamScores = new LinkedHashMap<>();
     final Map<String, Integer> scopaCounts = new LinkedHashMap<>();
     final Map<String, Integer> roundScores = new LinkedHashMap<>();
     final Map<String, Integer> lastRoundScores = new LinkedHashMap<>();
@@ -48,7 +50,10 @@ final class ChkobbaState {
     int dealNumber;
     int targetScore = DEFAULT_TARGET_SCORE;
     boolean botEnabled;
+    boolean teamMode;
     boolean started;
+    String winnerTeam;
+    String botPartnerId;
 
     private final List<Card> deck = new ArrayList<>();
     private final Random random = new Random();
@@ -69,11 +74,14 @@ final class ChkobbaState {
             players.remove(id);
             hands.remove(id);
             scores.remove(id);
+            teamByPlayerId.remove(id);
         }
         if (players.isEmpty()) {
             started = false;
             turnId = null;
             winner = null;
+            winnerTeam = null;
+            teamScores.clear();
         } else if (Objects.equals(turnId, id)) {
             turnId = players.keySet().iterator().next();
         }
@@ -84,21 +92,55 @@ final class ChkobbaState {
     }
 
     void start(Integer requestedTargetScore, boolean withBot) {
+        start(requestedTargetScore, withBot, false, null);
+    }
+
+    void start(Integer requestedTargetScore, boolean withBot, boolean requestedTeamMode, String requestedBotPartnerId) {
         if (started && winner == null) return;
-        if (withBot && players.size() == 1 && !players.containsKey(BOT_ID)) {
+        teamMode = requestedTeamMode;
+        botPartnerId = null;
+        if (teamMode && withBot && players.size() == 3 && !players.containsKey(BOT_ID) && players.containsKey(requestedBotPartnerId)) {
+            players.put(BOT_ID, new GameWebSocketController.Player(BOT_ID, "Bot Sirocco"));
+            botPartnerId = requestedBotPartnerId;
+        } else if (!teamMode && withBot && players.size() == 1 && !players.containsKey(BOT_ID)) {
             players.put(BOT_ID, new GameWebSocketController.Player(BOT_ID, "Bot Sirocco"));
         }
-        if (!withBot) players.remove(BOT_ID);
-        if (players.size() < 2) return;
+        if ((!teamMode && !withBot) || (teamMode && !withBot)) players.remove(BOT_ID);
+        if (teamMode && players.size() != 4) return;
+        if (!teamMode && players.size() < 2) return;
         targetScore = requestedTargetScore != null && requestedTargetScore == 21 ? 21 : DEFAULT_TARGET_SCORE;
         botEnabled = withBot && players.containsKey(BOT_ID);
+        configureTeams();
         scores.clear();
         players.keySet().forEach(id -> scores.put(id, 0));
         winner = null;
         lastRoundWinner = null;
+        winnerTeam = null;
         round = 1;
         lastRoundScores.clear();
         beginRound(players.keySet().iterator().next());
+    }
+
+    private void configureTeams() {
+        teamByPlayerId.clear();
+        teamScores.clear();
+        if (!teamMode) return;
+        List<String> ids = new ArrayList<>(players.keySet());
+        String teamA = "TEAM_A";
+        String teamB = "TEAM_B";
+        if (players.containsKey(BOT_ID) && botPartnerId != null) {
+            teamByPlayerId.put(botPartnerId, teamA);
+            teamByPlayerId.put(BOT_ID, teamA);
+            List<String> opponents = ids.stream().filter(id -> !id.equals(botPartnerId) && !id.equals(BOT_ID)).toList();
+            opponents.forEach(id -> teamByPlayerId.put(id, teamB));
+        } else {
+            teamByPlayerId.put(ids.get(0), teamA);
+            teamByPlayerId.put(ids.get(2), teamA);
+            teamByPlayerId.put(ids.get(1), teamB);
+            teamByPlayerId.put(ids.get(3), teamB);
+        }
+        teamScores.put(teamA, 0);
+        teamScores.put(teamB, 0);
     }
 
     boolean isBotTurn() {
@@ -265,8 +307,17 @@ final class ChkobbaState {
 
         lastRoundScores.clear();
         lastRoundScores.putAll(roundScores);
-        lastRoundWinner = roundScores.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
-        winner = scores.entrySet().stream().filter(entry -> entry.getValue() >= targetScore).map(Map.Entry::getKey).findFirst().orElse(null);
+        if (teamMode) {
+            teamScores.clear();
+            scores.forEach((playerId, score) -> teamScores.merge(teamByPlayerId.get(playerId), score, Integer::sum));
+            winnerTeam = teamScores.entrySet().stream().filter(entry -> entry.getValue() >= targetScore).map(Map.Entry::getKey).findFirst().orElse(null);
+            String leadingTeam = teamScores.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
+            lastRoundWinner = players.keySet().stream().filter(id -> Objects.equals(teamByPlayerId.get(id), leadingTeam)).findFirst().orElse(null);
+            winner = players.keySet().stream().filter(id -> Objects.equals(teamByPlayerId.get(id), winnerTeam)).findFirst().orElse(null);
+        } else {
+            lastRoundWinner = roundScores.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
+            winner = scores.entrySet().stream().filter(entry -> entry.getValue() >= targetScore).map(Map.Entry::getKey).findFirst().orElse(null);
+        }
         if (winner == null) {
             round++;
             beginRound(nextPlayer(lastPlayerId));
