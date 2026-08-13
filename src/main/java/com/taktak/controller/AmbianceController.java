@@ -1,7 +1,7 @@
 package com.taktak.controller;
 
 import com.taktak.dto.AmbianceStateDto;
-import com.taktak.service.AmbianceService;
+import com.taktak.service.IAmbianceService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -15,7 +15,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AmbianceController {
 
-    private final AmbianceService ambianceService;
+    private final IAmbianceService ambianceService;
 
     @GetMapping("/active")
     public ResponseEntity<AmbianceStateDto> getActiveAmbiance(

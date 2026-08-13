@@ -1,15 +1,21 @@
-package com.taktak.controller;
+package com.taktak.game.state;
+
+import com.taktak.game.controller.GameWebSocketController;
 
 import java.util.*;
 
 /** Lightweight four-player Ludo engine scoped to one table room. */
-final class LudoState {
-    final LinkedHashMap<String, GameWebSocketController.Player> players = new LinkedHashMap<>();
-    final Map<String, int[]> tokens = new LinkedHashMap<>();
-    String turnId; String winner; Integer dice; boolean started; boolean canRoll = true;
+public final class LudoState {
+    public final LinkedHashMap<String, GameWebSocketController.Player> players = new LinkedHashMap<>();
+    public final Map<String, int[]> tokens = new LinkedHashMap<>();
+    public String turnId;
+    public String winner;
+    public Integer dice;
+    public boolean started;
+    public boolean canRoll = true;
     private final Random random = new Random();
 
-    void join(String id, String name) {
+    public void join(String id, String name) {
         if (winner != null) {
             started = false;
             winner = null;
@@ -22,7 +28,7 @@ final class LudoState {
         }
     }
 
-    void leave(String id) {
+    public void leave(String id) {
         if (id != null) {
             players.remove(id);
             tokens.remove(id);
@@ -41,7 +47,7 @@ final class LudoState {
         }
     }
 
-    void start(Boolean botEnabled) {
+    public void start(Boolean botEnabled) {
         if (winner != null) winner = null;
         players.keySet().removeIf(pid -> pid.startsWith("bot_"));
         if (players.isEmpty()) return;
@@ -65,11 +71,11 @@ final class LudoState {
         started = true;
     }
 
-    boolean isBotTurn() {
+    public boolean isBotTurn() {
         return started && winner == null && turnId != null && turnId.startsWith("bot_");
     }
 
-    boolean playBotTurn() {
+    public boolean playBotTurn() {
         if (!isBotTurn()) return false;
         if (canRoll) {
             return roll(turnId);
@@ -103,14 +109,14 @@ final class LudoState {
         return false;
     }
 
-    boolean roll(String id) {
+    public boolean roll(String id) {
         if (!started || winner != null || !canRoll || !Objects.equals(turnId, id)) return false;
         dice = random.nextInt(6) + 1;
         canRoll = false;
         return true;
     }
 
-    boolean passNoMove(String id) {
+    public boolean passNoMove(String id) {
         if (!started || winner != null || canRoll || dice == null || !Objects.equals(turnId, id)) return false;
         if (hasMove(id, dice)) return false;
         advanceTurn();
@@ -119,7 +125,7 @@ final class LudoState {
         return true;
     }
 
-    boolean move(String id, Integer tokenIndex) {
+    public boolean move(String id, Integer tokenIndex) {
         if (!started || winner != null || canRoll || dice == null || !Objects.equals(turnId, id) || tokenIndex == null || tokenIndex < 0 || tokenIndex > 3) return false;
         int[] mine = tokens.get(id);
         if (mine == null) return false;
@@ -135,7 +141,7 @@ final class LudoState {
         return true;
     }
 
-    boolean hasMove(String id, int rolled) {
+    public boolean hasMove(String id, int rolled) {
         int[] myTokens = tokens.get(id);
         if (myTokens == null) return false;
         return Arrays.stream(myTokens).anyMatch(p -> (p == -1 && rolled == 6) || (p >= 0 && p < 57 && p + rolled <= 57));
@@ -170,4 +176,3 @@ final class LudoState {
         return (idx * 13 + progress) % 52;
     }
 }
-

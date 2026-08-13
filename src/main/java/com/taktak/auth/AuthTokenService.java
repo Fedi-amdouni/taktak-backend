@@ -10,8 +10,11 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class AuthTokenService {
@@ -28,12 +31,18 @@ public class AuthTokenService {
     }
 
     public String issue(String subject, String role, String cafeSlug) {
+        return issueForCafes(subject, role, cafeSlug == null || cafeSlug.isBlank() ? Set.of() : Set.of(cafeSlug));
+    }
+
+    public String issueForCafes(String subject, String role, Collection<String> cafeSlugs) {
         try {
             long expiresAt = Instant.now().getEpochSecond() + ttlSeconds;
+            Set<String> scopedCafes = new LinkedHashSet<>(cafeSlugs == null ? Set.of() : cafeSlugs);
             Map<String, Object> claims = new LinkedHashMap<>();
             claims.put("sub", subject);
             claims.put("role", role);
-            claims.put("cafe", cafeSlug == null ? "" : cafeSlug);
+            claims.put("cafe", scopedCafes.size() == 1 ? scopedCafes.iterator().next() : "");
+            claims.put("cafes", scopedCafes);
             claims.put("exp", expiresAt);
             String payload = Base64.getUrlEncoder().withoutPadding()
                     .encodeToString(objectMapper.writeValueAsBytes(claims));
@@ -51,11 +60,14 @@ public class AuthTokenService {
                     Base64.getUrlDecoder().decode(parts[0]), new TypeReference<>() {});
             long expiresAt = ((Number) claims.get("exp")).longValue();
             if (expiresAt <= Instant.now().getEpochSecond()) return null;
-            return new AuthPrincipal(
-                    String.valueOf(claims.get("sub")),
-                    String.valueOf(claims.get("role")),
-                    String.valueOf(claims.get("cafe")),
-                    expiresAt);
+            String cafe = String.valueOf(claims.getOrDefault("cafe", ""));
+            Set<String> cafes = new LinkedHashSet<>();
+            Object cafeClaim = claims.get("cafes");
+            if (cafeClaim instanceof Collection<?> values) {
+                values.stream().map(String::valueOf).filter(value -> !value.isBlank()).forEach(cafes::add);
+            }
+            if (cafes.isEmpty() && !cafe.isBlank()) cafes.add(cafe);
+            return new AuthPrincipal(String.valueOf(claims.get("sub")), String.valueOf(claims.get("role")), cafe, cafes, expiresAt);
         } catch (Exception ignored) {
             return null;
         }

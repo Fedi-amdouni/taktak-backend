@@ -16,10 +16,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.taktak.service.impl.OrderServiceImpl;
+
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -37,14 +41,14 @@ class OrderServiceStatusTransitionTest {
     private OrderRepository orderRepository;
     private CafeRepository cafeRepository;
     private SimpMessagingTemplate messagingTemplate;
-    private OrderService orderService;
+    private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
         cafeRepository = mock(CafeRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
-        orderService = new OrderService(
+        orderService = new OrderServiceImpl(
                 orderRepository,
                 cafeRepository,
                 mock(WaiterRepository.class),
@@ -127,12 +131,54 @@ class OrderServiceStatusTransitionTest {
         assertEquals(HttpStatus.NOT_FOUND, error.getStatusCode());
     }
 
+    @Test
+    void deletesOnlyInProgressOrdersForTheRequestedCafe() {
+        UUID cafeId = UUID.randomUUID();
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
+        Order received = order(UUID.randomUUID(), cafeId, OrderStatus.RECEIVED);
+        Order ready = order(UUID.randomUUID(), cafeId, OrderStatus.READY);
+
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(orderRepository.findByCafeIdAndStatusIn(
+                org.mockito.ArgumentMatchers.eq(cafeId),
+                org.mockito.ArgumentMatchers.anyCollection()
+        )).thenReturn(List.of(received, ready));
+
+        int deleted = orderService.deleteInProgressOrders("monastir-lounge");
+
+        assertEquals(2, deleted);
+        verify(orderRepository).deleteAll(List.of(received, ready));
+        assertEquals(OrderStatus.CANCELLED, received.getStatus());
+        assertEquals(OrderStatus.CANCELLED, ready.getStatus());
+        verify(messagingTemplate).convertAndSend("/topic/orders/monastir-lounge", received);
+        verify(messagingTemplate).convertAndSend("/topic/orders/monastir-lounge", ready);
+    }
+
+    @Test
+    void archivesPaidOrdersOlderThanTheConfiguredCutoff() {
+        UUID cafeId = UUID.randomUUID();
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(5);
+        Order paid = order(UUID.randomUUID(), cafeId, OrderStatus.PAID);
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
+
+        when(orderRepository.findByStatusAndUpdatedAtBefore(OrderStatus.PAID, cutoff)).thenReturn(List.of(paid));
+        when(orderRepository.saveAll(List.of(paid))).thenReturn(List.of(paid));
+        when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
+
+        int archived = orderService.archivePaidOrdersBefore(cutoff);
+
+        assertEquals(1, archived);
+        assertEquals(OrderStatus.ARCHIVED, paid.getStatus());
+        verify(orderRepository).saveAll(List.of(paid));
+        verify(messagingTemplate).convertAndSend("/topic/orders/monastir-lounge", paid);
+    }
+
     private static Stream<Arguments> allowedTransitions() {
         return Stream.of(
                 Arguments.of(OrderStatus.RECEIVED, OrderStatus.PREPARING),
                 Arguments.of(OrderStatus.RECEIVED, OrderStatus.CANCELLED),
                 Arguments.of(OrderStatus.PREPARING, OrderStatus.READY),
-                Arguments.of(OrderStatus.READY, OrderStatus.PICKED_UP),
+                Arguments.of(OrderStatus.READY, OrderStatus.SERVED),
                 Arguments.of(OrderStatus.PICKED_UP, OrderStatus.SERVED),
                 Arguments.of(OrderStatus.SERVED, OrderStatus.PAID),
                 Arguments.of(OrderStatus.PAID, OrderStatus.ARCHIVED)

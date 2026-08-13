@@ -1,4 +1,4 @@
-package com.taktak.config;
+package com.taktak.initializer;
 
 import com.taktak.model.*;
 import com.taktak.repository.*;
@@ -26,6 +26,7 @@ public class DataInitializer implements CommandLineRunner {
     private final ProductRepository productRepository;
     private final CafeTableRepository cafeTableRepository;
     private final FloorPlanRepository floorPlanRepository;
+    private final TableAssignmentRepository tableAssignmentRepository;
     private final PartyQuestionRepository partyQuestionRepository;
 
     @Override
@@ -36,30 +37,33 @@ public class DataInitializer implements CommandLineRunner {
 
         // 1. Cafe 1: Monastir Lounge
         Cafe monastir = initCafe("Monastir Lounge", "monastir-lounge", "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=300&q=80");
+        initTablesForCafe(monastir);
         initWaitersForCafe(monastir, List.of(
                 Waiter.builder().cafeId(monastir.getId()).name("Youssef").pinCode("1234").shiftHours("08:00 - 16:00 (Shift Matin)").isActive(true).build(),
                 Waiter.builder().cafeId(monastir.getId()).name("Ahmed").pinCode("5678").shiftHours("16:00 - 00:00 (Shift Soir)").isActive(true).build(),
                 Waiter.builder().cafeId(monastir.getId()).name("Sirine").pinCode("9999").shiftHours("12:00 - 20:00 (Shift Continu)").isActive(true).build()
-        ));
+        ), Map.of("Youssef", List.of(1, 2, 3, 4, 5), "Ahmed", List.of(6, 7, 8, 9, 10), "Sirine", List.of(11, 12, 13, 14, 15)));
         initMenuForMonastir(monastir);
         migrateComboSlots(monastir);
         migrateLegacyTablesToPlans(monastir);
 
         // 2. Cafe 2: Carthage Premium Lounge
         Cafe carthage = initCafe("Carthage Premium Lounge", "carthage-lounge", "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=300&q=80");
+        initTablesForCafe(carthage);
         initWaitersForCafe(carthage, List.of(
                 Waiter.builder().cafeId(carthage.getId()).name("Karim").pinCode("1111").shiftHours("09:00 - 17:00").isActive(true).build(),
                 Waiter.builder().cafeId(carthage.getId()).name("Amine").pinCode("2222").shiftHours("17:00 - 01:00").isActive(true).build()
-        ));
+        ), Map.of("Karim", List.of(1, 2, 3, 4, 5), "Amine", List.of(6, 7, 8, 9, 10)));
         initMenuForCarthage(carthage);
         migrateLegacyTablesToPlans(carthage);
 
         // 3. Cafe 3: Sousse Palm Beach Cafe
         Cafe sousse = initCafe("Sousse Palm Beach Cafe", "sousse-palm-beach", "https://images.unsplash.com/photo-1559925393-8be0ec4767c8?auto=format&fit=crop&w=300&q=80");
+        initTablesForCafe(sousse);
         initWaitersForCafe(sousse, List.of(
                 Waiter.builder().cafeId(sousse.getId()).name("Sami").pinCode("3333").shiftHours("10:00 - 18:00").isActive(true).build(),
                 Waiter.builder().cafeId(sousse.getId()).name("Meriem").pinCode("4444").shiftHours("18:00 - 02:00").isActive(true).build()
-        ));
+        ), Map.of("Sami", List.of(1, 2, 3, 4, 5), "Meriem", List.of(6, 7, 8, 9, 10)));
         initMenuForSousse(sousse);
         migrateLegacyTablesToPlans(sousse);
 
@@ -80,10 +84,23 @@ public class DataInitializer implements CommandLineRunner {
                 });
     }
 
-    private void initWaitersForCafe(Cafe cafe, List<Waiter> defaultWaiters) {
+    private void initWaitersForCafe(Cafe cafe, List<Waiter> defaultWaiters, Map<String, List<Integer>> initialAssignments) {
         List<Waiter> existing = waiterRepository.findByCafeIdAndIsActiveTrue(cafe.getId());
         if (existing.isEmpty()) {
-            waiterRepository.saveAll(defaultWaiters);
+            List<Waiter> savedWaiters = waiterRepository.saveAll(defaultWaiters);
+            for (Waiter w : savedWaiters) {
+                List<Integer> tables = initialAssignments.get(w.getName());
+                if (tables != null && !tables.isEmpty()) {
+                    List<TableAssignment> assignments = tables.stream()
+                            .map(tn -> TableAssignment.builder()
+                                    .waiterId(w.getId())
+                                    .cafeId(cafe.getId())
+                                    .tableNumber(tn)
+                                    .build())
+                            .toList();
+                    tableAssignmentRepository.saveAll(assignments);
+                }
+            }
         }
     }
 

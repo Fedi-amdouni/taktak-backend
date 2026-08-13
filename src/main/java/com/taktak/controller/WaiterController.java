@@ -2,8 +2,7 @@ package com.taktak.controller;
 
 import com.taktak.dto.AssignTablesRequest;
 import com.taktak.dto.WaiterDTO;
-import com.taktak.dto.WaiterLoginRequest;
-import com.taktak.service.WaiterService;
+import com.taktak.service.IWaiterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,7 +15,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class WaiterController {
 
-    private final WaiterService waiterService;
+    private final IWaiterService waiterService;
 
     @GetMapping("/cafes/{cafeSlug}/waiters/active")
     public ResponseEntity<List<WaiterDTO>> getActiveWaiters(@PathVariable String cafeSlug) {

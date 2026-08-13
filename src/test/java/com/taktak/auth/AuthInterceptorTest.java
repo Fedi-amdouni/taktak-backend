@@ -49,10 +49,56 @@ class AuthInterceptorTest {
     }
 
     @Test
+    void staffCanReadTheirCafesFloorPlanButCannotModifyIt() throws Exception {
+        String token = tokens.issue("waiter-1", "STAFF", "monastir-lounge");
+
+        assertTrue(interceptor.preHandle(
+                authenticated("GET", "/api/cafes/monastir-lounge/floor-plans", token),
+                new MockHttpServletResponse(), new Object()));
+        assertTrue(interceptor.preHandle(
+                authenticated("GET", "/api/floor-plans/plan-1/obstacles", token),
+                new MockHttpServletResponse(), new Object()));
+
+        MockHttpServletResponse mutationResponse = new MockHttpServletResponse();
+        assertFalse(interceptor.preHandle(
+                authenticated("POST", "/api/cafes/monastir-lounge/floor-plans", token),
+                mutationResponse, new Object()));
+        assertEquals(403, mutationResponse.getStatus());
+    }
+
+    @Test
+    void staffCanAssignOnlyTheirOwnTables() throws Exception {
+        String token = tokens.issue("waiter-1", "STAFF", "monastir-lounge");
+
+        assertTrue(interceptor.preHandle(
+                authenticated("POST", "/api/v1/waiters/waiter-1/assign-tables", token),
+                new MockHttpServletResponse(), new Object()));
+
+        MockHttpServletResponse otherWaiterResponse = new MockHttpServletResponse();
+        assertFalse(interceptor.preHandle(
+                authenticated("POST", "/api/v1/waiters/waiter-2/assign-tables", token),
+                otherWaiterResponse, new Object()));
+        assertEquals(403, otherWaiterResponse.getStatus());
+    }
+
+    @Test
     void adminCanAccessProtectedOperations() throws Exception {
         String token = tokens.issue("owner", "ADMIN", null);
         assertTrue(interceptor.preHandle(authenticated("POST", "/api/products", token),
                 new MockHttpServletResponse(), new Object()));
+    }
+
+    @Test
+    void ownerCanOnlyAccessCafesIncludedInTheirSession() throws Exception {
+        String token = tokens.issueForCafes("wael", "ADMIN", java.util.List.of("monastir-lounge", "carthage-lounge"));
+
+        assertTrue(interceptor.preHandle(authenticated("GET", "/api/cafes/monastir-lounge/orders", token),
+                new MockHttpServletResponse(), new Object()));
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        assertFalse(interceptor.preHandle(authenticated("GET", "/api/cafes/sousse-palm-beach/orders", token),
+                response, new Object()));
+        assertEquals(403, response.getStatus());
     }
 
     @Test

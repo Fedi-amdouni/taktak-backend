@@ -1,8 +1,9 @@
-package com.taktak.service;
+package com.taktak.service.impl;
 
 import com.taktak.dto.AmbianceStateDto;
 import com.taktak.model.*;
 import com.taktak.repository.*;
+import com.taktak.service.IAmbianceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -14,7 +15,7 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class AmbianceService {
+public class AmbianceServiceImpl implements IAmbianceService {
 
     private final CafeRepository cafeRepository;
     private final EventPollRepository eventPollRepository;
@@ -23,6 +24,7 @@ public class AmbianceService {
     private final UserVoteRecordRepository userVoteRecordRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
+    @Override
     @Transactional(readOnly = true)
     public AmbianceStateDto getAmbianceState(String cafeSlug, String voterSessionId) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug).orElse(null);
@@ -89,6 +91,7 @@ public class AmbianceService {
                 .build();
     }
 
+    @Override
     @Transactional
     public AmbianceStateDto votePoll(String cafeSlug, UUID optionId, String voterSessionId) {
         PollOption option = pollOptionRepository.findById(optionId)
@@ -114,6 +117,7 @@ public class AmbianceService {
         return updatedState;
     }
 
+    @Override
     @Transactional
     public AmbianceStateDto voteMusic(String cafeSlug, UUID musicOptionId, String voterSessionId) {
         MusicVoteOption musicOption = musicVoteOptionRepository.findById(musicOptionId)
@@ -135,6 +139,7 @@ public class AmbianceService {
         return updatedState;
     }
 
+    @Override
     @Transactional
     public AmbianceStateDto createPoll(String cafeSlug, String title, List<String> optionTexts) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug)
@@ -171,6 +176,7 @@ public class AmbianceService {
         return updatedState;
     }
 
+    @Override
     @Transactional
     public AmbianceStateDto resetMusicVotes(String cafeSlug) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug)
@@ -188,6 +194,7 @@ public class AmbianceService {
         return updatedState;
     }
 
+    @Override
     @Transactional
     public AmbianceStateDto proposeMusic(String cafeSlug, String title, String genre, String voterSessionId) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug)
@@ -219,6 +226,7 @@ public class AmbianceService {
         return updatedState;
     }
 
+    @Override
     @Transactional
     public AmbianceStateDto deleteMusicOption(String cafeSlug, UUID musicOptionId) {
         musicVoteOptionRepository.deleteById(musicOptionId);

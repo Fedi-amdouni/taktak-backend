@@ -1,4 +1,4 @@
-package com.taktak.service;
+package com.taktak.service.impl;
 
 import com.taktak.dto.CreateOrderPayload;
 import com.taktak.dto.WaiterPerformanceDto;
@@ -7,9 +7,12 @@ import com.taktak.repository.CafeRepository;
 import com.taktak.repository.OrderRepository;
 import com.taktak.repository.TableAssignmentRepository;
 import com.taktak.repository.WaiterRepository;
+import com.taktak.service.IOrderService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -23,12 +26,19 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class OrderService {
+public class OrderServiceImpl implements IOrderService {
+
+    private static final Set<OrderStatus> IN_PROGRESS_STATUSES = EnumSet.of(
+            OrderStatus.RECEIVED,
+            OrderStatus.PREPARING,
+            OrderStatus.READY,
+            OrderStatus.PICKED_UP
+    );
 
     private static final Map<OrderStatus, OrderStatus> ALLOWED_TRANSITIONS = Map.of(
             OrderStatus.RECEIVED, OrderStatus.PREPARING,
             OrderStatus.PREPARING, OrderStatus.READY,
-            OrderStatus.READY, OrderStatus.PICKED_UP,
+            OrderStatus.READY, OrderStatus.SERVED,
             OrderStatus.PICKED_UP, OrderStatus.SERVED,
             OrderStatus.SERVED, OrderStatus.PAID,
             OrderStatus.PAID, OrderStatus.ARCHIVED
@@ -40,6 +50,10 @@ public class OrderService {
     private final TableAssignmentRepository tableAssignmentRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
+    @Value("${taktak.orders.auto-archive-minutes:5}")
+    private long autoArchiveMinutes;
+
+    @Override
     @Transactional
     public Order createOrder(CreateOrderPayload payload) {
         Cafe cafe = cafeRepository.findBySlug(payload.getCafeSlug())
@@ -61,24 +75,24 @@ public class OrderService {
                 .items(new ArrayList<>())
                 .build();
 
-            for (CreateOrderPayload.OrderItemPayload itemPayload : payload.getItems()) {
-                String selJson = null;
-                if (itemPayload.getSelectedOptions() != null && !itemPayload.getSelectedOptions().isEmpty()) {
-                    try {
-                        selJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(itemPayload.getSelectedOptions());
-                    } catch (Exception ignored) {}
-                }
-
-                OrderItem item = OrderItem.builder()
-                        .productId(itemPayload.getProductId())
-                        .productName(itemPayload.getProductName())
-                        .quantity(itemPayload.getQuantity() != null ? itemPayload.getQuantity() : 1)
-                        .unitPrice(itemPayload.getUnitPrice() != null ? itemPayload.getUnitPrice() : BigDecimal.ZERO)
-                        .selectedOptionsJson(selJson)
-                        .notes(itemPayload.getNotes())
-                        .build();
-                order.addItem(item);
+        for (CreateOrderPayload.OrderItemPayload itemPayload : payload.getItems()) {
+            String selJson = null;
+            if (itemPayload.getSelectedOptions() != null && !itemPayload.getSelectedOptions().isEmpty()) {
+                try {
+                    selJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(itemPayload.getSelectedOptions());
+                } catch (Exception ignored) {}
             }
+
+            OrderItem item = OrderItem.builder()
+                    .productId(itemPayload.getProductId())
+                    .productName(itemPayload.getProductName())
+                    .quantity(itemPayload.getQuantity() != null ? itemPayload.getQuantity() : 1)
+                    .unitPrice(itemPayload.getUnitPrice() != null ? itemPayload.getUnitPrice() : BigDecimal.ZERO)
+                    .selectedOptionsJson(selJson)
+                    .notes(itemPayload.getNotes())
+                    .build();
+            order.addItem(item);
+        }
 
         Order saved = orderRepository.save(order);
 
@@ -88,12 +102,15 @@ public class OrderService {
         return saved;
     }
 
+    @Override
+    @Transactional(readOnly = true)
     public List<Order> getOrdersForCafe(String cafeSlug) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug).orElse(null);
         if (cafe == null) return List.of();
         return orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
     }
 
+    @Override
     @Transactional
     public Order updateOrderStatus(UUID orderId, OrderStatus newStatus) {
         Order order = orderRepository.findById(orderId)
@@ -155,6 +172,32 @@ public class OrderService {
         return updated;
     }
 
+    @Scheduled(fixedDelayString = "${taktak.orders.archive-check-ms:60000}")
+    @Transactional
+    public void archivePaidOrders() {
+        archivePaidOrdersBefore(LocalDateTime.now().minusMinutes(autoArchiveMinutes));
+    }
+
+    public int archivePaidOrdersBefore(LocalDateTime cutoff) {
+        List<Order> paidOrders = orderRepository.findByStatusAndUpdatedAtBefore(OrderStatus.PAID, cutoff);
+        if (paidOrders.isEmpty()) return 0;
+
+        paidOrders.forEach(order -> order.setStatus(OrderStatus.ARCHIVED));
+        List<Order> archivedOrders = orderRepository.saveAll(paidOrders);
+
+        Map<UUID, String> cafeSlugs = new HashMap<>();
+        archivedOrders.forEach(order -> {
+            String cafeSlug = cafeSlugs.computeIfAbsent(order.getCafeId(), cafeId ->
+                    cafeRepository.findById(cafeId).map(Cafe::getSlug).orElse(null));
+            if (cafeSlug != null) {
+                messagingTemplate.convertAndSend("/topic/orders/" + cafeSlug, order);
+            }
+        });
+
+        return archivedOrders.size();
+    }
+
+    @Override
     @Transactional
     public Order transferOrderTable(UUID orderId, Integer newTableNumber) {
         Optional<Order> optionalOrder = orderRepository.findById(orderId);
@@ -185,7 +228,28 @@ public class OrderService {
         return updated;
     }
 
-    // Owner Analytics Calculation
+    @Override
+    @Transactional
+    public int deleteInProgressOrders(String cafeSlug) {
+        Cafe cafe = cafeRepository.findBySlug(cafeSlug)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Café introuvable"));
+
+        List<Order> orders = orderRepository.findByCafeIdAndStatusIn(cafe.getId(), IN_PROGRESS_STATUSES);
+        if (orders.isEmpty()) return 0;
+
+        orderRepository.deleteAll(orders);
+
+        // Tell connected dashboards and customer trackers to remove the deleted orders immediately.
+        orders.forEach(order -> {
+            order.setStatus(OrderStatus.CANCELLED);
+            messagingTemplate.convertAndSend("/topic/orders/" + cafeSlug, order);
+        });
+
+        return orders.size();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> getAnalyticsForCafe(String cafeSlug) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug).orElse(null);
         Map<String, Object> analytics = new HashMap<>();
@@ -250,7 +314,8 @@ public class OrderService {
         return analytics;
     }
 
-    // Waiter Performance Analytics Calculation
+    @Override
+    @Transactional(readOnly = true)
     public List<WaiterPerformanceDto> getWaiterPerformanceMetrics(String cafeSlug, String period) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug).orElse(null);
         if (cafe == null) return List.of();
@@ -303,13 +368,13 @@ public class OrderService {
                     .filter(o -> o.getCreatedAt() != null && o.getAcceptedAt() != null)
                     .mapToLong(o -> Math.max(0, Duration.between(o.getCreatedAt(), o.getAcceptedAt()).getSeconds()))
                     .average()
-                    .orElse(95.0); // 1 min 35 sec baseline for initial demo presentation
+                    .orElse(95.0);
 
             double avgFulfillmentTimeMin = waiterOrders.stream()
                     .filter(o -> o.getCreatedAt() != null && o.getServedAt() != null)
                     .mapToLong(o -> Math.max(0, Duration.between(o.getCreatedAt(), o.getServedAt()).toMinutes()))
                     .average()
-                    .orElse(4.2); // 4.2 min baseline
+                    .orElse(4.2);
 
             result.add(WaiterPerformanceDto.builder()
                     .waiterId(waiter.getId().toString())

@@ -1,4 +1,6 @@
-package com.taktak.controller;
+package com.taktak.game.state;
+
+import com.taktak.game.controller.GameWebSocketController;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -10,35 +12,35 @@ import java.util.Objects;
 import java.util.Set;
 
 /** Server-authoritative Tunisian Rami engine for one table room. */
-final class RamiState {
-    static final int INITIAL_HAND_SIZE = 14;
-    static final String BOT_ID = "rami-bot";
+public final class RamiState {
+    public static final int INITIAL_HAND_SIZE = 14;
+    public static final String BOT_ID = "rami-bot";
 
-    final LinkedHashMap<String, GameWebSocketController.Player> players = new LinkedHashMap<>();
-    final Map<String, List<ChkobbaState.Card>> hands = new LinkedHashMap<>();
-    final List<GameWebSocketController.RamiMeld> melds = new ArrayList<>();
-    final List<ChkobbaState.Card> drawPile = new ArrayList<>();
-    final List<ChkobbaState.Card> discardPile = new ArrayList<>();
-    final Map<String, Boolean> playerHasLaid = new LinkedHashMap<>();
-    final Map<String, JokerReplacement> jokerReplacements = new LinkedHashMap<>();
-    final Map<String, Integer> scores = new LinkedHashMap<>();
+    public final LinkedHashMap<String, GameWebSocketController.Player> players = new LinkedHashMap<>();
+    public final Map<String, List<ChkobbaState.Card>> hands = new LinkedHashMap<>();
+    public final List<GameWebSocketController.RamiMeld> melds = new ArrayList<>();
+    public final List<ChkobbaState.Card> drawPile = new ArrayList<>();
+    public final List<ChkobbaState.Card> discardPile = new ArrayList<>();
+    public final Map<String, Boolean> playerHasLaid = new LinkedHashMap<>();
+    public final Map<String, JokerReplacement> jokerReplacements = new LinkedHashMap<>();
+    public final Map<String, Integer> scores = new LinkedHashMap<>();
 
-    String turnId;
-    String winner;
-    boolean started;
-    boolean hasDrawn;
-    boolean botEnabled;
-    int round;
-    int minMeldScore = 74;
+    public String turnId;
+    public String winner;
+    public boolean started;
+    public boolean hasDrawn;
+    public boolean botEnabled;
+    public int round;
+    public int minMeldScore = 74;
 
     private final java.util.Random random = new java.util.Random();
 
     public record JokerReplacement(String suit, String rank, int value) {}
-    record MeldValidation(String type, int score, Map<String, JokerReplacement> replacements) {}
+    public record MeldValidation(String type, int score, Map<String, JokerReplacement> replacements) {}
     private record ResolvedMeld(List<ChkobbaState.Card> cards, MeldValidation validation) {}
     private record BotMelds(List<ChkobbaState.Card> cards, int score) {}
 
-    void join(String id, String name) {
+    public void join(String id, String name) {
         if (id == null || id.isBlank()) return;
         if (players.containsKey(id)) {
             players.put(id, new GameWebSocketController.Player(id, name));
@@ -47,7 +49,7 @@ final class RamiState {
         }
     }
 
-    void leave(String id) {
+    public void leave(String id) {
         if (id != null) {
             players.remove(id);
             hands.remove(id);
@@ -63,7 +65,7 @@ final class RamiState {
         }
     }
 
-    void start(boolean requestedBotEnabled, Integer requestedMinMeldScore) {
+    public void start(boolean requestedBotEnabled, Integer requestedMinMeldScore) {
         if (started && winner == null) return;
         players.remove(BOT_ID);
         botEnabled = requestedBotEnabled;
@@ -81,7 +83,7 @@ final class RamiState {
         beginRound(players.keySet().iterator().next());
     }
 
-    boolean draw(String playerId, String source) {
+    public boolean draw(String playerId, String source) {
         if (!started || winner != null || !Objects.equals(turnId, playerId) || hasDrawn) return false;
         ChkobbaState.Card card;
         if ("discard".equals(source)) {
@@ -170,9 +172,9 @@ final class RamiState {
 
     private boolean isValidMeld(List<ChkobbaState.Card> cards) { return validateMeld(cards) != null; }
 
-    int calculateMeldScore(List<ChkobbaState.Card> cards) { MeldValidation validation = validateMeld(cards); return validation == null ? 0 : validation.score(); }
+    public int calculateMeldScore(List<ChkobbaState.Card> cards) { MeldValidation validation = validateMeld(cards); return validation == null ? 0 : validation.score(); }
 
-    boolean lay(String playerId, List<String> cardIds) {
+    public boolean lay(String playerId, List<String> cardIds) {
         if (!started || winner != null || !hasDrawn || !Objects.equals(turnId, playerId) || cardIds == null) return false;
         List<ChkobbaState.Card> hand = hands.get(playerId);
         if (hand == null || cardIds.size() < 3 || cardIds.size() != cardIds.stream().distinct().count()) return false;
@@ -194,7 +196,7 @@ final class RamiState {
         return true;
     }
 
-    boolean discard(String playerId, String cardId) {
+    public boolean discard(String playerId, String cardId) {
         if (!started || winner != null || !hasDrawn || !Objects.equals(turnId, playerId) || cardId == null) return false;
         List<ChkobbaState.Card> hand = hands.get(playerId);
         if (hand == null) return false;
@@ -227,7 +229,7 @@ final class RamiState {
         return scoreForRank(card.getRank(), true);
     }
 
-    boolean replaceJoker(String playerId, int meldIndex, String jokerId, String replacementCardId) {
+    public boolean replaceJoker(String playerId, int meldIndex, String jokerId, String replacementCardId) {
         if (!started || winner != null || !hasDrawn || !Objects.equals(turnId, playerId) || !playerHasLaid.getOrDefault(playerId, false) || meldIndex < 0 || meldIndex >= melds.size()) return false;
         JokerReplacement expected = jokerReplacements.get(jokerId);
         GameWebSocketController.RamiMeld meld = melds.get(meldIndex);
@@ -246,7 +248,7 @@ final class RamiState {
         return true;
     }
 
-    boolean extendMeld(String playerId, int meldIndex, List<String> cardIds) {
+    public boolean extendMeld(String playerId, int meldIndex, List<String> cardIds) {
         if (!started || winner != null || !hasDrawn || !Objects.equals(turnId, playerId) || !playerHasLaid.getOrDefault(playerId, false) || meldIndex < 0 || meldIndex >= melds.size() || cardIds == null || cardIds.isEmpty() || cardIds.size() != cardIds.stream().distinct().count()) return false;
         List<ChkobbaState.Card> hand = hands.get(playerId);
         if (hand == null) return false;
@@ -291,11 +293,11 @@ final class RamiState {
         return null;
     }
 
-    boolean isBotTurn() {
+    public boolean isBotTurn() {
         return botEnabled && winner == null && Objects.equals(turnId, BOT_ID);
     }
 
-    boolean playBotTurn() {
+    public boolean playBotTurn() {
         if (!isBotTurn()) return false;
         List<ChkobbaState.Card> botHand = hands.get(BOT_ID);
         String source = discardWouldHelp(botHand) ? "discard" : "deck";
@@ -340,7 +342,7 @@ final class RamiState {
         return new BotMelds(selected, score);
     }
 
-    ChkobbaState.Card discardTop() {
+    public ChkobbaState.Card discardTop() {
         return discardPile.isEmpty() ? null : discardPile.get(discardPile.size() - 1);
     }
 

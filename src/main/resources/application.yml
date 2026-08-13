@@ -20,6 +20,12 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: ${SPRING_JPA_SHOW_SQL:false}
+    open-in-view: false
+  data:
+    jpa:
+      repositories:
+        # Keep the API health route available during a constrained container cold start.
+        bootstrap-mode: lazy
 
 logging:
   level:
@@ -27,7 +33,13 @@ logging:
     org.springframework.web.socket: INFO
 
 taktak:
+  orders:
+    auto-archive-minutes: ${TAKTAK_ORDER_AUTO_ARCHIVE_MINUTES:5}
+    archive-check-ms: ${TAKTAK_ORDER_ARCHIVE_CHECK_MS:60000}
   auth:
     secret: ${TAKTAK_AUTH_SECRET:taktak_super_secret_jwt_key_2026_dev_mode_secret}
-    admin-password: ${TAKTAK_ADMIN_PASSWORD:admin123}
+    # Owner accounts: username:password:cafe-slug,cafe-slug. Set TAKTAK_OWNER_ACCOUNTS in shared environments.
+    owner-accounts: ${TAKTAK_OWNER_ACCOUNTS:}
+    # Temporary migration fallback when only the previous password setting exists.
+    admin-password: ${TAKTAK_ADMIN_PASSWORD:wael123}
     token-ttl-hours: ${TAKTAK_TOKEN_TTL_HOURS:12}

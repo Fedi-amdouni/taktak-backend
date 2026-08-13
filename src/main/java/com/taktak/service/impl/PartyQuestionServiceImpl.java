@@ -1,21 +1,22 @@
-package com.taktak.service;
+package com.taktak.service.impl;
 
 import com.taktak.model.PartyQuestion;
 import com.taktak.repository.PartyQuestionRepository;
+import com.taktak.service.IPartyQuestionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
-public class PartyQuestionService {
+public class PartyQuestionServiceImpl implements IPartyQuestionService {
 
     private final PartyQuestionRepository repository;
     private final Random random = new Random();
 
+    @Override
     public PartyQuestion getRandomQuizQuestion() {
         List<PartyQuestion> quizList = repository.findByCategory("QUIZ");
         if (quizList.isEmpty()) {
@@ -30,6 +31,7 @@ public class PartyQuestionService {
         return quizList.get(random.nextInt(quizList.size()));
     }
 
+    @Override
     public PartyQuestion getRandomTruth(String theme) {
         String queryTheme = (theme != null && !theme.isBlank()) ? theme : "social";
         List<PartyQuestion> list = repository.findByCategoryAndTheme("TRUTH", queryTheme);
@@ -46,6 +48,7 @@ public class PartyQuestionService {
         return list.get(random.nextInt(list.size()));
     }
 
+    @Override
     public PartyQuestion getRandomAction(String theme) {
         String queryTheme = (theme != null && !theme.isBlank()) ? theme : "social";
         List<PartyQuestion> list = repository.findByCategoryAndTheme("ACTION", queryTheme);
