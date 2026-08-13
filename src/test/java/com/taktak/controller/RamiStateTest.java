@@ -64,6 +64,8 @@ class RamiStateTest {
         state.hands.put("p1", new ArrayList<>(List.of(card("KOPPA", "7"), card("KOPPA", "8"), joker("j1"), card("KOPPA", "9"))));
 
         assertTrue(state.lay("p1", List.of("KOPPA-7", "KOPPA-9", "j1")));
+        assertEquals(List.of("KOPPA-7", "j1", "KOPPA-9"),
+                state.melds.get(0).getCards().stream().map(ChkobbaState.Card::getId).toList());
         assertFalse(state.discard("p1", "j1"));
         assertTrue(state.replaceJoker("p1", 0, "j1", "KOPPA-8"));
         assertTrue(state.hands.get("p1").stream().anyMatch(card -> "j1".equals(card.getId())));

@@ -4,6 +4,7 @@ import com.taktak.game.controller.GameWebSocketController;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -188,7 +189,7 @@ public final class RamiState {
 
         hand.removeIf(card -> cardIds.contains(card.getId()));
         for (ResolvedMeld meld : resolved) {
-            melds.add(new GameWebSocketController.RamiMeld(meld.validation().type(), meld.cards()));
+            melds.add(new GameWebSocketController.RamiMeld(meld.validation().type(), orderedMeldCards(meld.cards(), meld.validation())));
             jokerReplacements.putAll(meld.validation().replacements());
         }
         playerHasLaid.put(playerId, true);
@@ -261,10 +262,27 @@ public final class RamiState {
         if (validation == null) return false;
         meld.getCards().stream().filter(this::isJoker).forEach(card -> jokerReplacements.remove(card.getId()));
         hand.removeIf(card -> cardIds.contains(card.getId()));
-        meld.setCards(combined);
+        meld.setCards(orderedMeldCards(combined, validation));
         jokerReplacements.putAll(validation.replacements());
         if (hand.isEmpty()) finishRound(playerId);
         return true;
+    }
+
+    private List<ChkobbaState.Card> orderedMeldCards(List<ChkobbaState.Card> cards, MeldValidation validation) {
+        List<ChkobbaState.Card> ordered = new ArrayList<>(cards);
+        if (!"run".equals(validation.type())) {
+            ordered.sort(Comparator.comparing(ChkobbaState.Card::getSuit));
+            return ordered;
+        }
+
+        boolean highAce = cards.stream().anyMatch(card -> "K".equals(card.getRank()))
+                && (cards.stream().anyMatch(card -> "A".equals(card.getRank()))
+                || validation.replacements().values().stream().anyMatch(replacement -> "A".equals(replacement.rank())));
+        ordered.sort(Comparator.comparingInt(card -> {
+            JokerReplacement replacement = validation.replacements().get(card.getId());
+            return rankIndex(replacement == null ? card.getRank() : replacement.rank(), highAce);
+        }));
+        return ordered;
     }
 
     private List<ResolvedMeld> splitIntoMelds(List<ChkobbaState.Card> cards) {
