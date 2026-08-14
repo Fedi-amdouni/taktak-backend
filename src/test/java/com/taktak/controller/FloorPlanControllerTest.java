@@ -6,6 +6,7 @@ import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.FloorObstacleRepository;
 import com.taktak.repository.FloorPlanRepository;
+import com.taktak.service.impl.FloorPlanServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,17 +18,21 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.*;
 
 class FloorPlanControllerTest {
+    private CafeRepository cafeRepository;
     private CafeTableRepository tableRepository;
     private FloorPlanRepository planRepository;
+    private FloorObstacleRepository obstacleRepository;
     private FloorPlanController controller;
 
     @BeforeEach
     void setUp() {
+        cafeRepository = mock(CafeRepository.class);
         tableRepository = mock(CafeTableRepository.class);
         planRepository = mock(FloorPlanRepository.class);
-        controller = new FloorPlanController(
-                mock(CafeRepository.class), tableRepository, planRepository, mock(FloorObstacleRepository.class)
-        );
+        obstacleRepository = mock(FloorObstacleRepository.class);
+        controller = new FloorPlanController(new FloorPlanServiceImpl(
+                cafeRepository, tableRepository, planRepository, obstacleRepository
+        ));
     }
 
     @Test
@@ -56,8 +61,6 @@ class FloorPlanControllerTest {
 
     @Test
     void deletingPlanAlsoDeletesItsObstaclesAndTables() {
-        FloorObstacleRepository obstacleRepository = mock(FloorObstacleRepository.class);
-        controller = new FloorPlanController(mock(CafeRepository.class), tableRepository, planRepository, obstacleRepository);
         CafeTable table = new CafeTable();
         table.setId("table-1");
         when(planRepository.existsById("plan-1")).thenReturn(true);

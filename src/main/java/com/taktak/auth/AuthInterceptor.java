@@ -27,10 +27,10 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         AuthPrincipal principal = authenticate(request);
         if (principal == null) return reject(response, 401, "AUTHENTICATION_REQUIRED");
-        if (requiresAdmin(method, path) && !principal.isAdmin()) {
+        if (requiresAdmin(method, path) && !principal.isAdmin() && !isOwnTableAssignment(principal, method, path)) {
             return reject(response, 403, "ADMIN_REQUIRED");
         }
-        if (!principal.isAdmin() && !matchesCafeScope(principal, path)) {
+        if (!matchesCafeScope(principal, path)) {
             return reject(response, 403, "CAFE_ACCESS_DENIED");
         }
         AuthContext.set(principal);
@@ -50,13 +50,16 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private boolean isPublic(String method, String path) {
         if ("GET".equals(method) && path.equals("/api/health")) return true;
-        if (path.startsWith("/api/auth/")) return true;
+        if ("GET".equals(method) && path.matches("/api/orders/[0-9a-fA-F-]{36}")) return true;
+        if ("POST".equals(method) && (path.equals("/api/auth/admin/login") || path.equals("/api/auth/staff/login"))) return true;
         if ("GET".equals(method) && (path.equals("/api/cafes")
                 || path.matches("/api/cafes/[^/]+")
                 || path.matches("/api/cafes/[^/]+/menu")
+                || path.matches("/api/cafes/[^/]+/rewards/campaign")
                 || path.matches("/api/v1/cafes/[^/]+/ambiance/active"))) return true;
         if ("POST".equals(method) && (path.equals("/api/orders")
                 || path.matches("/api/cafes/[^/]+/service-calls")
+                || path.matches("/api/cafes/[^/]+/rewards/(feedback|coupons/validate)")
                 || path.matches("/api/v1/cafes/[^/]+/ambiance/(vote-poll|vote-music|propose-music)"))) return true;
         return false;
     }
@@ -64,16 +67,27 @@ public class AuthInterceptor implements HandlerInterceptor {
     private boolean requiresAdmin(String method, String path) {
         if (path.contains("/analytics")) return true;
         if (path.startsWith("/api/categories") || path.startsWith("/api/products")) return true;
-        if (path.contains("/floor-plans") || path.matches("/api/cafes/[^/]+/tables/batch")) return true;
+        if ((path.contains("/floor-plans") && !"GET".equals(method))
+                || path.matches("/api/cafes/[^/]+/tables/batch")) return true;
         if (path.startsWith("/api/v1/waiters/")) return true;
         if (path.matches("/api/v1/cafes/[^/]+/waiters") && !"GET".equals(method)) return true;
         if (path.matches("/api/v1/cafes/[^/]+/ambiance/(polls|reset-music|music/.+)")) return true;
+        if (path.matches("/api/cafes/[^/]+/game-rooms")) return true;
+        if (path.matches("/api/cafes/[^/]+/orders/in-progress")) return true;
+        if (path.matches("/api/cafes/[^/]+/rewards/campaign") && "PUT".equals(method)) return true;
+        if (path.matches("/api/cafes/[^/]+/rewards/coupons/manual")) return true;
         return path.equals("/api/cafes/upload");
+    }
+
+    private boolean isOwnTableAssignment(AuthPrincipal principal, String method, String path) {
+        if (!"STAFF".equals(principal.role()) || !"POST".equals(method)) return false;
+        Matcher matcher = Pattern.compile("/api/v1/waiters/([^/]+)/assign-tables").matcher(path);
+        return matcher.matches() && principal.subject().equals(matcher.group(1));
     }
 
     private boolean matchesCafeScope(AuthPrincipal principal, String path) {
         Matcher matcher = CAFE_PATH.matcher(path);
-        return !matcher.find() || matcher.group(1).equals(principal.cafeSlug());
+        return !matcher.find() || principal.canAccessCafe(matcher.group(1));
     }
 
     private boolean reject(HttpServletResponse response, int status, String code) throws Exception {

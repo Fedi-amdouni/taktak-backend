@@ -1,7 +1,7 @@
 package com.taktak.controller;
 
 import com.taktak.dto.WaiterPerformanceDto;
-import com.taktak.service.OrderService;
+import com.taktak.service.IAnalyticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,13 +13,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AnalyticsController {
 
-    private final OrderService orderService;
+    private final IAnalyticsService analyticsService;
 
     @GetMapping("/cafes/{cafeSlug}/analytics/waiters")
     public ResponseEntity<List<WaiterPerformanceDto>> getWaiterPerformance(
             @PathVariable String cafeSlug,
             @RequestParam(defaultValue = "TODAY") String period
     ) {
-        return ResponseEntity.ok(orderService.getWaiterPerformanceMetrics(cafeSlug, period));
+        return ResponseEntity.ok(analyticsService.getWaiterPerformanceMetrics(cafeSlug, period));
     }
 }

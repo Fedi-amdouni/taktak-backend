@@ -1,4 +1,4 @@
-package com.taktak.service;
+package com.taktak.service.impl;
 
 import com.taktak.dto.WaiterDTO;
 import com.taktak.model.Cafe;
@@ -7,10 +7,11 @@ import com.taktak.model.Waiter;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.TableAssignmentRepository;
 import com.taktak.repository.WaiterRepository;
+import com.taktak.service.IWaiterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -20,13 +21,14 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class WaiterService {
+public class WaiterServiceImpl implements IWaiterService {
     private static final BCryptPasswordEncoder PIN_ENCODER = new BCryptPasswordEncoder(12);
 
     private final WaiterRepository waiterRepository;
     private final TableAssignmentRepository tableAssignmentRepository;
     private final CafeRepository cafeRepository;
 
+    @Override
     @Transactional(readOnly = true)
     public List<WaiterDTO> getActiveWaiters(String cafeSlug) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug)
@@ -36,6 +38,7 @@ public class WaiterService {
         return waiters.stream().map(this::toDTO).collect(Collectors.toList());
     }
 
+    @Override
     @Transactional
     public WaiterDTO loginByPin(String cafeSlug, String pinCode) {
         log.info("Tentative de connexion par PIN pour café: {}", cafeSlug);
@@ -60,6 +63,7 @@ public class WaiterService {
         return toDTO(waiter);
     }
 
+    @Override
     @Transactional
     public WaiterDTO assignTables(String waiterIdStr, List<Integer> tableNumbers) {
         UUID waiterId = UUID.fromString(waiterIdStr);
@@ -83,6 +87,7 @@ public class WaiterService {
         return toDTO(waiter);
     }
 
+    @Override
     @Transactional
     public WaiterDTO createWaiter(String cafeSlug, String name, String pinCode, String shiftHours) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug)
@@ -106,6 +111,7 @@ public class WaiterService {
         return toDTO(saved);
     }
 
+    @Override
     @Transactional
     public WaiterDTO updateWaiter(String waiterIdStr, String name, String pinCode, String shiftHours, Boolean isActive) {
         UUID waiterId = UUID.fromString(waiterIdStr);
@@ -121,6 +127,7 @@ public class WaiterService {
         return toDTO(saved);
     }
 
+    @Override
     @Transactional
     public void deleteWaiter(String waiterIdStr) {
         UUID waiterId = UUID.fromString(waiterIdStr);
