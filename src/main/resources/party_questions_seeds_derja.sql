@@ -755,12 +755,23 @@ INSERT INTO incoming_party_questions (category, theme, prompt, answer, discussio
 INSERT INTO incoming_party_questions (category, theme, prompt, answer, discussion) VALUES ('QUIZ', 'general', 'شنوة اسم المشروب الطبيعي التونسي المنعش المصنوع من اللوز المرحي والسكر في الصيف والأعراس؟', 'الروزاطة التونسية (Horchata / Sirop d''Orgeat)', 'شكون فيكم كان حاضر ولا يتفكر اللحظة هذي؟ احكيولنا شعوركم!');
 INSERT INTO incoming_party_questions (category, theme, prompt, answer, discussion) VALUES ('QUIZ', 'general', 'شنوة اسم الفطور التونسي الصباحي التقليدي المصنوع من القمح المحمص المرحي مع السكر وزيت الزيتونة؟', 'الدرع (Draa) والبسيسة التونسية (Bsissa)', 'شنوة رأي الطاولة الكل في هالموضوع؟ هل تتفقوا مع هالإجابة؟');
 
--- The canonical seed is the only allowed catalogue in production.
-DELETE FROM party_questions;
+-- Replace only when the complete production catalogue differs from the canonical set.
+DELETE FROM party_questions
+WHERE (SELECT COUNT(*) FROM party_questions) <> (SELECT COUNT(*) FROM incoming_party_questions)
+   OR EXISTS (
+       (SELECT category, theme, prompt, answer, discussion FROM party_questions
+        EXCEPT
+        SELECT category, theme, prompt, answer, discussion FROM incoming_party_questions)
+       UNION ALL
+       (SELECT category, theme, prompt, answer, discussion FROM incoming_party_questions
+        EXCEPT
+        SELECT category, theme, prompt, answer, discussion FROM party_questions)
+   );
 
 INSERT INTO party_questions (category, theme, prompt, answer, discussion)
 SELECT incoming.category, incoming.theme, incoming.prompt, incoming.answer, incoming.discussion
-FROM incoming_party_questions incoming;
+FROM incoming_party_questions incoming
+WHERE NOT EXISTS (SELECT 1 FROM party_questions);
 
 DROP TABLE incoming_party_questions;
 

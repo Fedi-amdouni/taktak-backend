@@ -344,21 +344,13 @@ public class DataInitializer implements CommandLineRunner {
 
     private void initPartyQuestions() {
         long currentCount = partyQuestionRepository.count();
-        boolean hasLegacyDummyQuestions = partyQuestionRepository.findAll().stream()
-                .anyMatch(q -> q.getPrompt() != null && (q.getPrompt().contains("#") || q.getPrompt().contains("Culture générale & Logique")));
-
-        if (currentCount == 700 && !hasLegacyDummyQuestions) {
-            log.info("Base de données des questions déjà alimentée avec succès ({} questions en Derja Tounsiya).", currentCount);
-            return;
-        }
-
-        log.info("Initialisation de la base des questions en Derja Tounsiya (200 Vérités, 200 Actions, 300 Quiz)...");
+        log.info("Synchronisation du catalogue canonique des questions ({} lignes présentes)...", currentCount);
         try {
             ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
             populator.addScript(new ClassPathResource("party_questions_seeds_derja.sql"));
             populator.setSqlScriptEncoding("UTF-8");
             populator.execute(dataSource);
-            log.info("Succès : {} questions/défis en Derja Tounsiya chargés dans PostgreSQL !", partyQuestionRepository.count());
+            log.info("Succès : le catalogue PostgreSQL contient {} questions canoniques.", partyQuestionRepository.count());
         } catch (Exception e) {
             log.error("Erreur lors du chargement du script SQL des questions: {}", e.getMessage(), e);
         }
