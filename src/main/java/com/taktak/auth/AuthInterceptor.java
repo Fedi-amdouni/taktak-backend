@@ -55,7 +55,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     }
 
     private boolean isPublic(String method, String path) {
-        if ("GET".equals(method) && path.equals("/api/health")) return true;
+        if ("GET".equals(method) && path.startsWith("/api/health")) return true;
         if ("GET".equals(method) && path.matches("/api/orders/[0-9a-fA-F-]{36}")) return true;
         if ("POST".equals(method) && (path.equals("/api/auth/admin/login") || path.equals("/api/auth/staff/login"))) return true;
         if ("GET".equals(method) && (path.equals("/api/cafes")
