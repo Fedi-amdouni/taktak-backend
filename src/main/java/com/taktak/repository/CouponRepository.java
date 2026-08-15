@@ -1,0 +1,3 @@
+package com.taktak.repository;
+import com.taktak.model.Coupon; import jakarta.persistence.LockModeType; import org.springframework.data.jpa.repository.*; import org.springframework.data.repository.query.Param; import java.util.*;
+public interface CouponRepository extends JpaRepository<Coupon,UUID>{Optional<Coupon> findByCodeIgnoreCase(String code);@Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select c from Coupon c where lower(c.code)=lower(:code)") Optional<Coupon> findByCodeForUpdate(@Param("code") String code);Optional<Coupon> findBySourceOrderId(UUID orderId); Optional<Coupon> findByRedeemedOrderId(UUID orderId);}

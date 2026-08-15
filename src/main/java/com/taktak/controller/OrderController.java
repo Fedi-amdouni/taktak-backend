@@ -32,6 +32,11 @@ public class OrderController {
         return ResponseEntity.ok(orders);
     }
 
+    @GetMapping("/orders/{id}")
+    public ResponseEntity<Order> getOrder(@PathVariable UUID id) {
+        return ResponseEntity.ok(orderService.getOrder(id));
+    }
+
     @DeleteMapping("/cafes/{slug}/orders/in-progress")
     public ResponseEntity<Map<String, Integer>> deleteInProgressOrders(@PathVariable String slug) {
         int deleted = orderService.deleteInProgressOrders(slug);

@@ -26,6 +26,14 @@ spring:
       repositories:
         # Keep the API health route available during a constrained container cold start.
         bootstrap-mode: lazy
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SPRING_MAIL_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SPRING_MAIL_STARTTLS_ENABLE:true}
 
 logging:
   level:
@@ -33,9 +41,11 @@ logging:
     org.springframework.web.socket: INFO
 
 taktak:
+  mail:
+    from: ${TAKTAK_MAIL_FROM:}
   orders:
-    auto-archive-minutes: ${TAKTAK_ORDER_AUTO_ARCHIVE_MINUTES:5}
-    archive-check-ms: ${TAKTAK_ORDER_ARCHIVE_CHECK_MS:60000}
+    auto-archive-seconds: ${TAKTAK_ORDER_AUTO_ARCHIVE_SECONDS:15}
+    archive-check-ms: ${TAKTAK_ORDER_ARCHIVE_CHECK_MS:5000}
   auth:
     secret: ${TAKTAK_AUTH_SECRET:taktak_super_secret_jwt_key_2026_dev_mode_secret}
     # Owner accounts: username:password:cafe-slug,cafe-slug. Set TAKTAK_OWNER_ACCOUNTS in shared environments.

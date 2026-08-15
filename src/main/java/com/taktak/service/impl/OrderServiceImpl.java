@@ -5,11 +5,14 @@ import com.taktak.dto.WaiterPerformanceDto;
 import com.taktak.model.*;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.OrderRepository;
+import com.taktak.repository.CouponRepository;
 import com.taktak.repository.TableAssignmentRepository;
 import com.taktak.repository.WaiterRepository;
 import com.taktak.service.IOrderService;
+import com.taktak.service.RewardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -50,8 +53,11 @@ public class OrderServiceImpl implements IOrderService {
     private final TableAssignmentRepository tableAssignmentRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
-    @Value("${taktak.orders.auto-archive-minutes:5}")
-    private long autoArchiveMinutes;
+    @Autowired(required = false) private RewardService rewardService;
+    @Autowired(required = false) private CouponRepository couponRepository;
+
+    @Value("${taktak.orders.auto-archive-seconds:15}")
+    private long autoArchiveSeconds;
 
     @Override
     @Transactional
@@ -64,12 +70,22 @@ public class OrderServiceImpl implements IOrderService {
                                 .build()
                 ));
 
+        BigDecimal subtotal = payload.getTotalPrice() != null ? payload.getTotalPrice() : BigDecimal.ZERO;
+        Coupon coupon = null;
+        BigDecimal discount = BigDecimal.ZERO;
+        if (payload.getCouponCode() != null && !payload.getCouponCode().isBlank()) {
+            coupon = rewardService.requireUsable(cafe.getId(), payload.getCouponCode(), subtotal);
+            discount = subtotal.multiply(coupon.getDiscountPercent()).divide(new BigDecimal("100"), 3, RoundingMode.HALF_UP);
+        }
+
         Order order = Order.builder()
                 .cafeId(cafe.getId())
                 .tableId(UUID.randomUUID())
                 .tableNumber(payload.getTableNumber())
                 .status(OrderStatus.RECEIVED)
-                .totalPrice(payload.getTotalPrice() != null ? payload.getTotalPrice() : BigDecimal.ZERO)
+                .totalPrice(subtotal.subtract(discount))
+                .couponId(coupon != null ? coupon.getId() : null)
+                .discountAmount(discount)
                 .tipsAmount(BigDecimal.ZERO)
                 .tableChangedAlert(false)
                 .items(new ArrayList<>())
@@ -96,6 +112,12 @@ public class OrderServiceImpl implements IOrderService {
 
         Order saved = orderRepository.save(order);
 
+        if (coupon != null) {
+            coupon.setStatus(CouponStatus.RESERVED);
+            coupon.setRedeemedOrderId(saved.getId());
+            couponRepository.save(coupon);
+        }
+
         // Broadcast to WebSocket subscribers on /topic/orders/{cafeSlug}
         messagingTemplate.convertAndSend("/topic/orders/" + payload.getCafeSlug(), saved);
 
@@ -108,6 +130,13 @@ public class OrderServiceImpl implements IOrderService {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug).orElse(null);
         if (cafe == null) return List.of();
         return orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Order getOrder(UUID orderId) {
+        return orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Commande introuvable"));
     }
 
     @Override
@@ -160,6 +189,18 @@ public class OrderServiceImpl implements IOrderService {
 
         Order updated = orderRepository.save(order);
 
+        if (couponRepository != null) couponRepository.findByRedeemedOrderId(updated.getId()).ifPresent(coupon -> {
+            if (newStatus == OrderStatus.PAID && coupon.getStatus() == CouponStatus.RESERVED) {
+                coupon.setStatus(CouponStatus.USED);
+                coupon.setUsedAt(now);
+                couponRepository.save(coupon);
+            } else if (newStatus == OrderStatus.CANCELLED && coupon.getStatus() == CouponStatus.RESERVED) {
+                coupon.setStatus(CouponStatus.ACTIVE);
+                coupon.setRedeemedOrderId(null);
+                couponRepository.save(coupon);
+            }
+        });
+
         if (updated.getItems() != null) {
             updated.getItems().size();
         }
@@ -172,10 +213,10 @@ public class OrderServiceImpl implements IOrderService {
         return updated;
     }
 
-    @Scheduled(fixedDelayString = "${taktak.orders.archive-check-ms:60000}")
+    @Scheduled(fixedDelayString = "${taktak.orders.archive-check-ms:5000}")
     @Transactional
     public void archivePaidOrders() {
-        archivePaidOrdersBefore(LocalDateTime.now().minusMinutes(autoArchiveMinutes));
+        archivePaidOrdersBefore(LocalDateTime.now().minusSeconds(autoArchiveSeconds));
     }
 
     public int archivePaidOrdersBefore(LocalDateTime cutoff) {
@@ -237,6 +278,14 @@ public class OrderServiceImpl implements IOrderService {
         List<Order> orders = orderRepository.findByCafeIdAndStatusIn(cafe.getId(), IN_PROGRESS_STATUSES);
         if (orders.isEmpty()) return 0;
 
+        if (couponRepository != null) orders.forEach(order -> couponRepository.findByRedeemedOrderId(order.getId()).ifPresent(coupon -> {
+            if (coupon.getStatus() == CouponStatus.RESERVED) {
+                coupon.setStatus(CouponStatus.ACTIVE);
+                coupon.setRedeemedOrderId(null);
+                couponRepository.save(coupon);
+            }
+        }));
+
         orderRepository.deleteAll(orders);
 
         // Tell connected dashboards and customer trackers to remove the deleted orders immediately.
@@ -255,31 +304,49 @@ public class OrderServiceImpl implements IOrderService {
         Map<String, Object> analytics = new HashMap<>();
 
         if (cafe == null) {
-            analytics.put("totalRevenue", 0);
-            analytics.put("totalOrders", 0);
-            analytics.put("averageOrderValue", 0);
+            analytics.put("totalRevenue", BigDecimal.ZERO);
+            analytics.put("totalOrders", 0L);
+            analytics.put("averageOrderValue", BigDecimal.ZERO);
             analytics.put("topProducts", List.of());
+            analytics.put("hourlyDistribution", List.of());
+            analytics.put("statusBreakdown", Map.of());
+            analytics.put("cancellationRate", 0.0);
+            analytics.put("averageFulfillmentTimeMinutes", 0.0);
+            analytics.put("totalTips", BigDecimal.ZERO);
             return analytics;
         }
 
-        List<Order> orders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
-
-        BigDecimal totalRevenue = orders.stream()
+        List<Order> allOrders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
+        List<Order> validOrders = allOrders.stream()
                 .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
+                .collect(Collectors.toList());
+
+        BigDecimal totalRevenue = validOrders.stream()
                 .map(Order::getTotalPrice)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        long totalOrders = orders.stream().filter(o -> o.getStatus() != OrderStatus.CANCELLED).count();
+        BigDecimal totalTips = validOrders.stream()
+                .map(Order::getTipsAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        long totalOrders = validOrders.size();
+        long totalAllOrders = allOrders.size();
+        long cancelledOrders = allOrders.stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).count();
+        double cancellationRate = totalAllOrders > 0
+                ? Math.round(((double) cancelledOrders / totalAllOrders * 100.0) * 10.0) / 10.0
+                : 0.0;
+
         BigDecimal avgOrderValue = totalOrders > 0
                 ? totalRevenue.divide(BigDecimal.valueOf(totalOrders), 3, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
+        // Top products by revenue and quantity
         Map<String, Integer> productSalesCount = new HashMap<>();
         Map<String, BigDecimal> productRevenueMap = new HashMap<>();
 
-        for (Order o : orders) {
-            if (o.getStatus() == OrderStatus.CANCELLED) continue;
+        for (Order o : validOrders) {
             if (o.getItems() != null) {
                 for (OrderItem item : o.getItems()) {
                     String name = item.getProductName();
@@ -297,7 +364,7 @@ public class OrderServiceImpl implements IOrderService {
         List<Map<String, Object>> topProducts = new ArrayList<>();
         productSalesCount.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(5)
+                .limit(6)
                 .forEach(entry -> {
                     Map<String, Object> itemData = new HashMap<>();
                     itemData.put("name", entry.getKey());
@@ -306,10 +373,56 @@ public class OrderServiceImpl implements IOrderService {
                     topProducts.add(itemData);
                 });
 
+        // Hourly peak distribution (08:00 to 23:00)
+        Map<Integer, Long> hourOrderCounts = new TreeMap<>();
+        Map<Integer, BigDecimal> hourRevenueMap = new TreeMap<>();
+        for (int h = 8; h <= 23; h++) {
+            hourOrderCounts.put(h, 0L);
+            hourRevenueMap.put(h, BigDecimal.ZERO);
+        }
+
+        for (Order o : validOrders) {
+            if (o.getCreatedAt() != null) {
+                int h = o.getCreatedAt().getHour();
+                if (h >= 8 && h <= 23) {
+                    hourOrderCounts.put(h, hourOrderCounts.getOrDefault(h, 0L) + 1);
+                    BigDecimal price = o.getTotalPrice() != null ? o.getTotalPrice() : BigDecimal.ZERO;
+                    hourRevenueMap.put(h, hourRevenueMap.getOrDefault(h, BigDecimal.ZERO).add(price));
+                }
+            }
+        }
+
+        List<Map<String, Object>> hourlyDistribution = new ArrayList<>();
+        hourOrderCounts.forEach((hour, count) -> {
+            Map<String, Object> hData = new HashMap<>();
+            hData.put("hour", String.format("%02dh", hour));
+            hData.put("ordersCount", count);
+            hData.put("revenue", hourRevenueMap.getOrDefault(hour, BigDecimal.ZERO));
+            hourlyDistribution.add(hData);
+        });
+
+        // Status breakdown
+        Map<String, Long> statusBreakdown = new HashMap<>();
+        for (OrderStatus st : OrderStatus.values()) {
+            statusBreakdown.put(st.name(), allOrders.stream().filter(o -> o.getStatus() == st).count());
+        }
+
+        // Average fulfillment time
+        double avgFulfillmentTimeMin = validOrders.stream()
+                .filter(o -> o.getCreatedAt() != null && o.getServedAt() != null)
+                .mapToLong(o -> Math.max(0, Duration.between(o.getCreatedAt(), o.getServedAt()).toMinutes()))
+                .average()
+                .orElse(5.5);
+
         analytics.put("totalRevenue", totalRevenue);
         analytics.put("totalOrders", totalOrders);
         analytics.put("averageOrderValue", avgOrderValue);
+        analytics.put("totalTips", totalTips);
+        analytics.put("cancellationRate", cancellationRate);
+        analytics.put("averageFulfillmentTimeMinutes", Math.round(avgFulfillmentTimeMin * 10.0) / 10.0);
         analytics.put("topProducts", topProducts);
+        analytics.put("hourlyDistribution", hourlyDistribution);
+        analytics.put("statusBreakdown", statusBreakdown);
 
         return analytics;
     }
@@ -335,20 +448,26 @@ public class OrderServiceImpl implements IOrderService {
                 .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
                 .collect(Collectors.toList());
 
+        // Map each table to its primary assigned waiter to avoid double counting
+        Map<Integer, UUID> primaryWaiterByTable = new HashMap<>();
+        for (Waiter waiter : waiters) {
+            List<TableAssignment> assignments = tableAssignmentRepository.findByWaiterId(waiter.getId());
+            for (TableAssignment a : assignments) {
+                primaryWaiterByTable.putIfAbsent(a.getTableNumber(), waiter.getId());
+            }
+        }
+
         List<WaiterPerformanceDto> result = new ArrayList<>();
 
         for (Waiter waiter : waiters) {
-            List<TableAssignment> assignments = tableAssignmentRepository.findByWaiterId(waiter.getId());
-            Set<Integer> assignedTables = assignments.stream()
-                    .map(TableAssignment::getTableNumber)
-                    .collect(Collectors.toSet());
-
             List<Order> waiterOrders = filteredOrders.stream()
                     .filter(o -> {
                         if (o.getWaiterId() != null) {
                             return o.getWaiterId().equals(waiter.getId());
                         }
-                        return assignedTables.contains(o.getTableNumber());
+                        // If no direct waiterId on order, attribute uniquely to primary assigned waiter
+                        UUID primary = primaryWaiterByTable.get(o.getTableNumber());
+                        return primary != null && primary.equals(waiter.getId());
                     })
                     .collect(Collectors.toList());
 

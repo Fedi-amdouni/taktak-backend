@@ -50,13 +50,16 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private boolean isPublic(String method, String path) {
         if ("GET".equals(method) && path.equals("/api/health")) return true;
+        if ("GET".equals(method) && path.matches("/api/orders/[0-9a-fA-F-]{36}")) return true;
         if ("POST".equals(method) && (path.equals("/api/auth/admin/login") || path.equals("/api/auth/staff/login"))) return true;
         if ("GET".equals(method) && (path.equals("/api/cafes")
                 || path.matches("/api/cafes/[^/]+")
                 || path.matches("/api/cafes/[^/]+/menu")
+                || path.matches("/api/cafes/[^/]+/rewards/campaign")
                 || path.matches("/api/v1/cafes/[^/]+/ambiance/active"))) return true;
         if ("POST".equals(method) && (path.equals("/api/orders")
                 || path.matches("/api/cafes/[^/]+/service-calls")
+                || path.matches("/api/cafes/[^/]+/rewards/(feedback|coupons/validate)")
                 || path.matches("/api/v1/cafes/[^/]+/ambiance/(vote-poll|vote-music|propose-music)"))) return true;
         return false;
     }
@@ -71,6 +74,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (path.matches("/api/v1/cafes/[^/]+/ambiance/(polls|reset-music|music/.+)")) return true;
         if (path.matches("/api/cafes/[^/]+/game-rooms")) return true;
         if (path.matches("/api/cafes/[^/]+/orders/in-progress")) return true;
+        if (path.matches("/api/cafes/[^/]+/rewards/campaign") && "PUT".equals(method)) return true;
+        if (path.matches("/api/cafes/[^/]+/rewards/coupons/manual")) return true;
         return path.equals("/api/cafes/upload");
     }
 

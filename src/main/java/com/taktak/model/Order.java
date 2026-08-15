@@ -38,6 +38,13 @@ public class Order {
     @Column(name = "total_price", nullable = false, precision = 10, scale = 3)
     private BigDecimal totalPrice;
 
+    @Column(name = "coupon_id")
+    private UUID couponId;
+
+    @Column(name = "discount_amount", precision = 10, scale = 3)
+    @Builder.Default
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @Column(name = "tips_amount", precision = 10, scale = 3)
     @Builder.Default
     private BigDecimal tipsAmount = BigDecimal.ZERO;

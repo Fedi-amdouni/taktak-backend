@@ -12,6 +12,7 @@ import java.util.UUID;
 public interface IOrderService {
     Order createOrder(CreateOrderPayload payload);
     List<Order> getOrdersForCafe(String cafeSlug);
+    Order getOrder(UUID orderId);
     Order updateOrderStatus(UUID orderId, OrderStatus newStatus);
     Order transferOrderTable(UUID orderId, Integer newTableNumber);
     int deleteInProgressOrders(String cafeSlug);

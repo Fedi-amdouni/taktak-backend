@@ -9,6 +9,7 @@ public class CreateOrderPayload {
     private String cafeSlug;
     private Integer tableNumber;
     private BigDecimal totalPrice;
+    private String couponCode;
     private List<OrderItemPayload> items;
 
     @Data
