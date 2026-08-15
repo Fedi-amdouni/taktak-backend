@@ -275,7 +275,7 @@ public class OrderServiceImpl implements IOrderService {
                 if (updated.getCafeId() != null && updated.getTableNumber() != null) {
                     cafeTableRepository.findByCafeIdAndTableNumber(updated.getCafeId().toString(), updated.getTableNumber())
                             .ifPresent(table -> {
-                                table.setSessionToken(UUID.randomUUID().toString().substring(0, 8));
+                                table.setSessionToken(UUID.randomUUID().toString());
                                 cafeTableRepository.save(table);
                             });
                 }

@@ -17,5 +17,5 @@ public interface ICafeService {
     Map<String, Object> getAnalytics(String slug);
     Cafe updateLocationSettings(String slug, Double latitude, Double longitude, Double geofenceRadiusMeters);
     CafeTable toggleTableGames(String slug, Integer tableNumber, Boolean enabled);
-    Map<String, Object> getTableStatus(String slug, Integer tableNumber);
+    Map<String, Object> getTableStatus(String slug, Integer tableNumber, String sessionToken);
 }

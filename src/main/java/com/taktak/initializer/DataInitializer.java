@@ -347,7 +347,7 @@ public class DataInitializer implements CommandLineRunner {
         boolean hasLegacyDummyQuestions = partyQuestionRepository.findAll().stream()
                 .anyMatch(q -> q.getPrompt() != null && (q.getPrompt().contains("#") || q.getPrompt().contains("Culture générale & Logique")));
 
-        if (currentCount >= 700 && !hasLegacyDummyQuestions) {
+        if (currentCount == 700 && !hasLegacyDummyQuestions) {
             log.info("Base de données des questions déjà alimentée avec succès ({} questions en Derja Tounsiya).", currentCount);
             return;
         }

@@ -34,6 +34,19 @@ class AuthInterceptorTest {
     }
 
     @Test
+    void tableTokensAreOnlyAvailableToAuthenticatedCafeStaff() throws Exception {
+        MockHttpServletResponse anonymousResponse = new MockHttpServletResponse();
+        assertFalse(interceptor.preHandle(
+                request("GET", "/api/cafes/monastir-lounge/tables"), anonymousResponse, new Object()));
+        assertEquals(401, anonymousResponse.getStatus());
+
+        String token = tokens.issue("waiter-1", "STAFF", "monastir-lounge");
+        assertTrue(interceptor.preHandle(
+                authenticated("GET", "/api/cafes/monastir-lounge/tables", token),
+                new MockHttpServletResponse(), new Object()));
+    }
+
+    @Test
     void staffCannotAccessAnotherCafeOrAdminOperations() throws Exception {
         String token = tokens.issue("waiter-1", "STAFF", "monastir-lounge");
 

@@ -75,9 +75,10 @@ public class CafeController {
     @GetMapping("/{slug}/tables/{tableNumber}/status")
     public ResponseEntity<Map<String, Object>> getTableStatus(
             @PathVariable String slug,
-            @PathVariable Integer tableNumber
+            @PathVariable Integer tableNumber,
+            @RequestParam(value = "token", required = false) String sessionToken
     ) {
-        return ResponseEntity.ok(cafeService.getTableStatus(slug, tableNumber));
+        return ResponseEntity.ok(cafeService.getTableStatus(slug, tableNumber, sessionToken));
     }
 
     @PutMapping("/{slug}/tables/{tableNumber}/toggle-games")

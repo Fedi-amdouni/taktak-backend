@@ -113,13 +113,24 @@ public class CafeServiceImpl implements ICafeService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<CafeTable> getTablesByCafe(String slug) {
         Cafe cafe = cafeRepository.findBySlug(slug).orElse(null);
         if (cafe == null) {
             return List.of();
         }
-        return cafeTableRepository.findByCafeId(cafe.getId().toString());
+        List<CafeTable> tables = cafeTableRepository.findByCafeId(cafe.getId().toString());
+        boolean modified = false;
+        for (CafeTable table : tables) {
+            if (table.getSessionToken() == null || table.getSessionToken().isBlank()) {
+                table.setSessionToken(java.util.UUID.randomUUID().toString());
+                modified = true;
+            }
+        }
+        if (modified) {
+            tables = cafeTableRepository.saveAll(tables);
+        }
+        return tables;
     }
 
     @Override
@@ -186,16 +197,22 @@ public class CafeServiceImpl implements ICafeService {
         CafeTable saved = cafeTableRepository.save(table);
 
         // Diffuser mise à jour temps réel à la table
-        messagingTemplate.convertAndSend("/topic/tables/" + slug + "/" + tableNumber, getTableStatus(slug, tableNumber));
+        messagingTemplate.convertAndSend("/topic/tables/" + slug + "/" + tableNumber, getTableStatus(slug, tableNumber, null));
 
         return saved;
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public Map<String, Object> getTableStatus(String slug, Integer tableNumber) {
+    @Transactional
+    public Map<String, Object> getTableStatus(String slug, Integer tableNumber, String providedSessionToken) {
         Cafe cafe = cafeRepository.findBySlug(slug).orElse(null);
-        if (cafe == null) return Map.of("hasActiveOrders", false, "gamesAllowed", false);
+        if (cafe == null) return Map.of(
+                "tableNumber", tableNumber,
+                "hasActiveOrders", false,
+                "gamesAllowed", false,
+                "sessionValid", false,
+                "gamesEnabledOverride", "AUTO"
+        );
 
         // 1. Vérifier si la table a des commandes en cours (non payées / non archivées)
         List<Order> orders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
@@ -208,19 +225,38 @@ public class CafeServiceImpl implements ICafeService {
 
         // 2. Vérifier override spécifique gérant/staff
         Boolean override = null;
+        String currentSessionToken = null;
         Optional<CafeTable> tableOpt = cafeTableRepository.findByCafeIdAndTableNumber(cafe.getId().toString(), tableNumber);
         if (tableOpt.isPresent()) {
-            override = tableOpt.get().getGamesEnabledOverride();
+            CafeTable table = tableOpt.get();
+            override = table.getGamesEnabledOverride();
+            if (table.getSessionToken() == null || table.getSessionToken().isBlank()) {
+                table.setSessionToken(java.util.UUID.randomUUID().toString());
+                cafeTableRepository.save(table);
+            }
+            currentSessionToken = table.getSessionToken();
         }
 
         // Si override fixé par staff (true ou false), sinon automatique selon commande active
         boolean gamesAllowed = override != null ? override : hasActiveOrders;
+        boolean sessionValid = sessionTokenMatches(currentSessionToken, providedSessionToken);
 
         return Map.of(
                 "tableNumber", tableNumber,
                 "hasActiveOrders", hasActiveOrders,
                 "gamesAllowed", gamesAllowed,
+                "sessionValid", sessionValid,
                 "gamesEnabledOverride", override != null ? override : "AUTO"
+        );
+    }
+
+    private boolean sessionTokenMatches(String expected, String provided) {
+        if (expected == null || expected.isBlank() || provided == null || provided.isBlank()) {
+            return false;
+        }
+        return java.security.MessageDigest.isEqual(
+                expected.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                provided.getBytes(java.nio.charset.StandardCharsets.UTF_8)
         );
     }
 }

@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS party_questions (
     discussion TEXT
 );
 
--- Stage the canonical question set without deleting any production data.
+-- Replace the production catalogue atomically with the canonical 700 questions.
+BEGIN;
+
 DROP TABLE IF EXISTS incoming_party_questions;
 CREATE TEMP TABLE incoming_party_questions (
     category VARCHAR(50) NOT NULL,
@@ -753,17 +755,15 @@ INSERT INTO incoming_party_questions (category, theme, prompt, answer, discussio
 INSERT INTO incoming_party_questions (category, theme, prompt, answer, discussion) VALUES ('QUIZ', 'general', 'شنوة اسم المشروب الطبيعي التونسي المنعش المصنوع من اللوز المرحي والسكر في الصيف والأعراس؟', 'الروزاطة التونسية (Horchata / Sirop d''Orgeat)', 'شكون فيكم كان حاضر ولا يتفكر اللحظة هذي؟ احكيولنا شعوركم!');
 INSERT INTO incoming_party_questions (category, theme, prompt, answer, discussion) VALUES ('QUIZ', 'general', 'شنوة اسم الفطور التونسي الصباحي التقليدي المصنوع من القمح المحمص المرحي مع السكر وزيت الزيتونة؟', 'الدرع (Draa) والبسيسة التونسية (Bsissa)', 'شنوة رأي الطاولة الكل في هالموضوع؟ هل تتفقوا مع هالإجابة؟');
 
--- Add only questions that are not already present in production.
+-- The canonical seed is the only allowed catalogue in production.
+DELETE FROM party_questions;
+
 INSERT INTO party_questions (category, theme, prompt, answer, discussion)
 SELECT incoming.category, incoming.theme, incoming.prompt, incoming.answer, incoming.discussion
-FROM incoming_party_questions incoming
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM party_questions existing
-    WHERE existing.category = incoming.category
-      AND existing.prompt = incoming.prompt
-);
+FROM incoming_party_questions incoming;
 
 DROP TABLE incoming_party_questions;
 
--- Finished seeding 700 party questions successfully without deleting existing rows.
+COMMIT;
+
+-- Finished replacing the catalogue with exactly 700 canonical party questions.
