@@ -6,11 +6,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.stereotype.Component;
 
-import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +20,6 @@ import java.util.Map;
 @Slf4j
 public class DataInitializer implements CommandLineRunner {
 
-    private final DataSource dataSource;
     private final CafeRepository cafeRepository;
     private final WaiterRepository waiterRepository;
     private final CategoryRepository categoryRepository;
@@ -31,13 +27,10 @@ public class DataInitializer implements CommandLineRunner {
     private final CafeTableRepository cafeTableRepository;
     private final FloorPlanRepository floorPlanRepository;
     private final TableAssignmentRepository tableAssignmentRepository;
-    private final PartyQuestionRepository partyQuestionRepository;
 
     @Override
     public void run(String... args) throws Exception {
         log.info("Vérification et initialisation des données multi-cafés...");
-
-        initPartyQuestions();
 
         // 1. Cafe 1: Monastir Lounge
         Cafe monastir = initCafe("Monastir Lounge", "monastir-lounge", "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=300&q=80");
@@ -342,17 +335,4 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
-    private void initPartyQuestions() {
-        long currentCount = partyQuestionRepository.count();
-        log.info("Synchronisation du catalogue canonique des questions ({} lignes présentes)...", currentCount);
-        try {
-            ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
-            populator.addScript(new ClassPathResource("party_questions_seeds_derja.sql"));
-            populator.setSqlScriptEncoding("UTF-8");
-            populator.execute(dataSource);
-            log.info("Succès : le catalogue PostgreSQL contient {} questions canoniques.", partyQuestionRepository.count());
-        } catch (Exception e) {
-            log.error("Erreur lors du chargement du script SQL des questions: {}", e.getMessage(), e);
-        }
-    }
 }
