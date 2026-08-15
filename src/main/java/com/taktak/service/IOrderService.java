@@ -11,6 +11,8 @@ import java.util.UUID;
 
 public interface IOrderService {
     Order createOrder(CreateOrderPayload payload);
+    Order createOrder(CreateOrderPayload payload, String clientIp);
+    void updateCafeWifiIp(String cafeSlug, String staffIp);
     List<Order> getOrdersForCafe(String cafeSlug);
     Order getOrder(UUID orderId);
     Order updateOrderStatus(UUID orderId, OrderStatus newStatus);

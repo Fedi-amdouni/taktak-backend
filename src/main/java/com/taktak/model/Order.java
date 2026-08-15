@@ -56,6 +56,23 @@ public class Order {
     @Builder.Default
     private Boolean tableChangedAlert = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "presence_status")
+    @Builder.Default
+    private OrderPresenceStatus presenceStatus = OrderPresenceStatus.UNVERIFIED_LOCATION;
+
+    @Column(name = "client_latitude")
+    private Double clientLatitude;
+
+    @Column(name = "client_longitude")
+    private Double clientLongitude;
+
+    @Column(name = "distance_meters")
+    private Double distanceMeters;
+
+    @Column(name = "client_ip")
+    private String clientIp;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

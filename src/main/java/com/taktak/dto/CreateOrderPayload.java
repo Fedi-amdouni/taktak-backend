@@ -10,6 +10,8 @@ public class CreateOrderPayload {
     private Integer tableNumber;
     private BigDecimal totalPrice;
     private String couponCode;
+    private Double clientLatitude;
+    private Double clientLongitude;
     private List<OrderItemPayload> items;
 
     @Data

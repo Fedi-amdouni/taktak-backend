@@ -177,3 +177,31 @@ INSERT INTO products (id, cafe_id, category_id, name, price, is_available, image
 ('b0000000-0000-0000-0000-000000000008', 'a1b2c3d4-e5f6-7890-abcd-111111111111', 'c0000000-0000-0000-0000-000000000004', 'Chicha Pomme Menthe', 14.000, true, 'https://images.unsplash.com/photo-1527661591475-527312dd65f5?auto=format&fit=crop&w=400&q=80', '[{"name": "Tuyau", "choices": ["Standard", "Tuyau Glacé (+2.000 TND)"]}]'),
 ('b0000000-0000-0000-0000-000000000009', 'a1b2c3d4-e5f6-7890-abcd-111111111111', 'c0000000-0000-0000-0000-000000000004', 'Chicha Love 66', 16.000, true, 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?auto=format&fit=crop&w=400&q=80', '[]')
 ON CONFLICT DO NOTHING;
+-- Configurable feedback rewards and automatically redeemed coupons
+CREATE TABLE IF NOT EXISTS reward_campaigns (
+  id UUID PRIMARY KEY, cafe_id UUID NOT NULL UNIQUE, enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  google_review_url TEXT, coupon_valid_days INTEGER NOT NULL DEFAULT 30,
+  minimum_order_amount NUMERIC(10,3) NOT NULL DEFAULT 0, created_at TIMESTAMP, updated_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS reward_options (
+  id UUID PRIMARY KEY, campaign_id UUID NOT NULL REFERENCES reward_campaigns(id) ON DELETE CASCADE,
+  label VARCHAR(255) NOT NULL, discount_percent NUMERIC(5,2) NOT NULL,
+  probability_percent NUMERIC(5,2) NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE TABLE IF NOT EXISTS customer_feedback (
+  id UUID PRIMARY KEY, cafe_id UUID NOT NULL, order_id UUID NOT NULL UNIQUE,
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5), comment VARCHAR(1000),
+  customer_email VARCHAR(255) NOT NULL, created_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS coupons (
+  id UUID PRIMARY KEY, code VARCHAR(24) NOT NULL UNIQUE, cafe_id UUID NOT NULL,
+  source_order_id UUID NOT NULL UNIQUE, redeemed_order_id UUID, customer_email VARCHAR(255) NOT NULL,
+  reward_label VARCHAR(255) NOT NULL, discount_percent NUMERIC(5,2) NOT NULL,
+  minimum_order_amount NUMERIC(10,3) NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('ACTIVE','RESERVED','USED','EXPIRED','CANCELLED')),
+  created_at TIMESTAMP, expires_at TIMESTAMP NOT NULL, used_at TIMESTAMP
+);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS coupon_id UUID;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10,3) NOT NULL DEFAULT 0;
+ALTER TABLE reward_campaigns ADD COLUMN IF NOT EXISTS participation_cooldown_days INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE coupons ALTER COLUMN source_order_id DROP NOT NULL;

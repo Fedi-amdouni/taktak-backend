@@ -4,6 +4,7 @@ import com.taktak.model.Cafe;
 import com.taktak.model.Order;
 import com.taktak.model.OrderStatus;
 import com.taktak.repository.CafeRepository;
+import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.OrderRepository;
 import com.taktak.repository.TableAssignmentRepository;
 import com.taktak.repository.WaiterRepository;
@@ -30,6 +31,8 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -40,6 +43,7 @@ class OrderServiceStatusTransitionTest {
 
     private OrderRepository orderRepository;
     private CafeRepository cafeRepository;
+    private CafeTableRepository cafeTableRepository;
     private SimpMessagingTemplate messagingTemplate;
     private OrderServiceImpl orderService;
 
@@ -47,10 +51,12 @@ class OrderServiceStatusTransitionTest {
     void setUp() {
         orderRepository = mock(OrderRepository.class);
         cafeRepository = mock(CafeRepository.class);
+        cafeTableRepository = mock(CafeTableRepository.class);
         messagingTemplate = mock(SimpMessagingTemplate.class);
         orderService = new OrderServiceImpl(
                 orderRepository,
                 cafeRepository,
+                cafeTableRepository,
                 mock(WaiterRepository.class),
                 mock(TableAssignmentRepository.class),
                 messagingTemplate

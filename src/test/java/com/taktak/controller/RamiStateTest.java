@@ -83,6 +83,23 @@ class RamiStateTest {
         assertEquals(20, state.scores.get("p2"));
     }
 
+    @Test
+    void firstLayEscalatesMinimumMeldScoreForOtherPlayers() {
+        RamiState state = preparedState();
+        state.minMeldScore = 74;
+        state.hands.put("p1", new ArrayList<>(List.of(
+                card("DINARI", "A"), card("KOPPA", "A"), card("SABRES", "A"), card("BASTONI", "A"),
+                card("KOPPA", "Q"), card("KOPPA", "K"), joker("j1"),
+                card("DINARI", "2")
+        )));
+
+        // 4 As (44 pts) + Q-K-Joker KOPPA (30 pts) = 74 pts
+        assertTrue(state.lay("p1", List.of("DINARI-A", "KOPPA-A", "SABRES-A", "BASTONI-A", "KOPPA-Q", "KOPPA-K", "j1")));
+        assertTrue(state.playerHasLaid.get("p1"));
+        // Seuil initial était 74, joueur a posé 74 -> nouveau seuil devient 75 (74 + 1) !
+        assertEquals(75, state.minMeldScore);
+    }
+
     private RamiState preparedState() {
         RamiState state = new RamiState();
         state.players.put("p1", new GameWebSocketController.Player("p1", "Amina"));

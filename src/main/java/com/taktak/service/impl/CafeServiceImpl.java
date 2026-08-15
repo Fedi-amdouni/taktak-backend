@@ -4,13 +4,17 @@ import com.taktak.model.Cafe;
 import com.taktak.model.CafeTable;
 import com.taktak.model.Category;
 import com.taktak.model.Product;
+import com.taktak.model.Order;
+import com.taktak.model.OrderStatus;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.CategoryRepository;
+import com.taktak.repository.OrderRepository;
 import com.taktak.repository.ProductRepository;
 import com.taktak.service.ICafeService;
 import com.taktak.service.IOrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -27,6 +31,8 @@ public class CafeServiceImpl implements ICafeService {
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final CafeTableRepository cafeTableRepository;
+    private final OrderRepository orderRepository;
+    private final SimpMessagingTemplate messagingTemplate;
     private final IOrderService orderService;
 
     @Override
@@ -147,5 +153,74 @@ public class CafeServiceImpl implements ICafeService {
     @Transactional(readOnly = true)
     public Map<String, Object> getAnalytics(String slug) {
         return orderService.getAnalyticsForCafe(slug);
+    }
+
+    @Override
+    @Transactional
+    public Cafe updateLocationSettings(String slug, Double latitude, Double longitude, Double geofenceRadiusMeters) {
+        Cafe cafe = cafeRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Café introuvable : " + slug));
+
+        if (latitude != null) cafe.setLatitude(latitude);
+        if (longitude != null) cafe.setLongitude(longitude);
+        if (geofenceRadiusMeters != null) cafe.setGeofenceRadiusMeters(geofenceRadiusMeters);
+
+        return cafeRepository.save(cafe);
+    }
+
+    @Override
+    @Transactional
+    public CafeTable toggleTableGames(String slug, Integer tableNumber, Boolean enabled) {
+        Cafe cafe = cafeRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Café introuvable : " + slug));
+
+        CafeTable table = cafeTableRepository.findByCafeIdAndTableNumber(cafe.getId().toString(), tableNumber)
+                .orElseGet(() -> {
+                    CafeTable newT = new CafeTable();
+                    newT.setCafeId(cafe.getId().toString());
+                    newT.setTableNumber(tableNumber);
+                    return newT;
+                });
+
+        table.setGamesEnabledOverride(enabled);
+        CafeTable saved = cafeTableRepository.save(table);
+
+        // Diffuser mise à jour temps réel à la table
+        messagingTemplate.convertAndSend("/topic/tables/" + slug + "/" + tableNumber, getTableStatus(slug, tableNumber));
+
+        return saved;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getTableStatus(String slug, Integer tableNumber) {
+        Cafe cafe = cafeRepository.findBySlug(slug).orElse(null);
+        if (cafe == null) return Map.of("hasActiveOrders", false, "gamesAllowed", false);
+
+        // 1. Vérifier si la table a des commandes en cours (non payées / non archivées)
+        List<Order> orders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
+        boolean hasActiveOrders = orders.stream().anyMatch(o ->
+                o.getTableNumber() != null && o.getTableNumber().equals(tableNumber)
+                && o.getStatus() != OrderStatus.PAID
+                && o.getStatus() != OrderStatus.ARCHIVED
+                && o.getStatus() != OrderStatus.CANCELLED
+        );
+
+        // 2. Vérifier override spécifique gérant/staff
+        Boolean override = null;
+        Optional<CafeTable> tableOpt = cafeTableRepository.findByCafeIdAndTableNumber(cafe.getId().toString(), tableNumber);
+        if (tableOpt.isPresent()) {
+            override = tableOpt.get().getGamesEnabledOverride();
+        }
+
+        // Si override fixé par staff (true ou false), sinon automatique selon commande active
+        boolean gamesAllowed = override != null ? override : hasActiveOrders;
+
+        return Map.of(
+                "tableNumber", tableNumber,
+                "hasActiveOrders", hasActiveOrders,
+                "gamesAllowed", gamesAllowed,
+                "gamesEnabledOverride", override != null ? override : "AUTO"
+        );
     }
 }
