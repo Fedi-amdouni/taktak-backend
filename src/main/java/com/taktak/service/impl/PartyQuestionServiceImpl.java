@@ -23,9 +23,9 @@ public class PartyQuestionServiceImpl implements IPartyQuestionService {
             return PartyQuestion.builder()
                     .category("QUIZ")
                     .theme("general")
-                    .prompt("Quel pays a remporté la Coupe du Monde 1978 en battant le Mexique 3-1 ?")
-                    .answer("La Tunisie.")
-                    .discussion("Cet exploit est-il le plus mémorable de l'histoire du football tunisien ?")
+                    .prompt("شكون هو هداف المنتخب التونسي التاريخي في كل المسابقات الرسمية؟")
+                    .answer("عصام جمعة (Issam Jemâa بـ 36 هدف)")
+                    .discussion("برشا ناس كانت تنبر على عصام جمعة وتوا يقولو ليتنا نلقاو مهاجم كيفو! شنوة رأيكم؟")
                     .build();
         }
         return quizList.get(random.nextInt(quizList.size()));
@@ -33,16 +33,21 @@ public class PartyQuestionServiceImpl implements IPartyQuestionService {
 
     @Override
     public PartyQuestion getRandomTruth(String theme) {
-        String queryTheme = (theme != null && !theme.isBlank()) ? theme : "social";
-        List<PartyQuestion> list = repository.findByCategoryAndTheme("TRUTH", queryTheme);
-        if (list.isEmpty()) {
+        String queryTheme = (theme != null && !theme.isBlank()) ? theme.trim().toLowerCase() : "all";
+        List<PartyQuestion> list;
+        if ("all".equals(queryTheme)) {
             list = repository.findByCategory("TRUTH");
+        } else {
+            list = repository.findByCategoryAndTheme("TRUTH", queryTheme);
+            if (list.isEmpty()) {
+                list = repository.findByCategory("TRUTH");
+            }
         }
         if (list.isEmpty()) {
             return PartyQuestion.builder()
                     .category("TRUTH")
                     .theme(queryTheme)
-                    .prompt("Sra7a 💬: Quel est le plus grand changement dans ta façon de penser ces 2 dernières années ?")
+                    .prompt("شنوة أكثر حاجة تخاف منها وماتحبش تستعرف باها لصحابك؟")
                     .build();
         }
         return list.get(random.nextInt(list.size()));
@@ -50,16 +55,21 @@ public class PartyQuestionServiceImpl implements IPartyQuestionService {
 
     @Override
     public PartyQuestion getRandomAction(String theme) {
-        String queryTheme = (theme != null && !theme.isBlank()) ? theme : "social";
-        List<PartyQuestion> list = repository.findByCategoryAndTheme("ACTION", queryTheme);
-        if (list.isEmpty()) {
+        String queryTheme = (theme != null && !theme.isBlank()) ? theme.trim().toLowerCase() : "all";
+        List<PartyQuestion> list;
+        if ("all".equals(queryTheme)) {
             list = repository.findByCategory("ACTION");
+        } else {
+            list = repository.findByCategoryAndTheme("ACTION", queryTheme);
+            if (list.isEmpty()) {
+                list = repository.findByCategory("ACTION");
+            }
         }
         if (list.isEmpty()) {
             return PartyQuestion.builder()
                     .category("ACTION")
                     .theme(queryTheme)
-                    .prompt("Action ⚡: Fais une imitation comique de quelqu'un à la table pendant 30 secondes !")
+                    .prompt("اعمل تقليد مضحك لأكثر فازة يتعصب منها صاحبك اللي على يمينك!")
                     .build();
         }
         return list.get(random.nextInt(list.size()));

@@ -26,11 +26,17 @@ public class AuthInterceptor implements HandlerInterceptor {
         if ("OPTIONS".equals(method) || isPublic(method, path)) return true;
 
         AuthPrincipal principal = authenticate(request);
-        if (principal == null) return reject(response, 401, "AUTHENTICATION_REQUIRED");
+        if (principal == null) {
+            String header = request.getHeader("Authorization");
+            System.out.println("[AUTH] Rejet 401 sur " + method + " " + path + " | Header: " + (header == null ? "NULL" : header.substring(0, Math.min(header.length(), 20)) + "..."));
+            return reject(response, 401, "AUTHENTICATION_REQUIRED");
+        }
         if (requiresAdmin(method, path) && !principal.isAdmin() && !isOwnTableAssignment(principal, method, path)) {
+            System.out.println("[AUTH] Rejet 403 ADMIN sur " + method + " " + path + " pour " + principal);
             return reject(response, 403, "ADMIN_REQUIRED");
         }
         if (!matchesCafeScope(principal, path)) {
+            System.out.println("[AUTH] Rejet 403 CAFE SCOPE sur " + method + " " + path + " pour " + principal);
             return reject(response, 403, "CAFE_ACCESS_DENIED");
         }
         AuthContext.set(principal);
@@ -54,10 +60,17 @@ public class AuthInterceptor implements HandlerInterceptor {
         if ("POST".equals(method) && (path.equals("/api/auth/admin/login") || path.equals("/api/auth/staff/login"))) return true;
         if ("GET".equals(method) && (path.equals("/api/cafes")
                 || path.matches("/api/cafes/[^/]+")
+                || path.matches("/api/cafes/[^/]+/check-wifi")
+                || path.matches("/api/cafes/[^/]+/tables")
+                || path.matches("/api/cafes/[^/]+/tables/[0-9]+/status")
+                || path.matches("/api/cafes/[^/]+/floor-plans")
+                || path.matches("/api/floor-plans/[^/]+/obstacles")
                 || path.matches("/api/cafes/[^/]+/menu")
                 || path.matches("/api/cafes/[^/]+/rewards/campaign")
-                || path.matches("/api/v1/cafes/[^/]+/ambiance/active"))) return true;
+                || path.matches("/api/v1/cafes/[^/]+/ambiance/active")
+                || path.matches("/api/v1/cafes/[^/]+/waiters/active"))) return true;
         if ("POST".equals(method) && (path.equals("/api/orders")
+                || path.matches("/api/cafes/[^/]+/staff-heartbeat")
                 || path.matches("/api/cafes/[^/]+/service-calls")
                 || path.matches("/api/cafes/[^/]+/rewards/(feedback|coupons/validate)")
                 || path.matches("/api/v1/cafes/[^/]+/ambiance/(vote-poll|vote-music|propose-music)"))) return true;
@@ -66,6 +79,7 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private boolean requiresAdmin(String method, String path) {
         if (path.contains("/analytics")) return true;
+        if (path.matches("/api/cafes/[^/]+/location") && "PUT".equals(method)) return true;
         if (path.startsWith("/api/categories") || path.startsWith("/api/products")) return true;
         if ((path.contains("/floor-plans") && !"GET".equals(method))
                 || path.matches("/api/cafes/[^/]+/tables/batch")) return true;

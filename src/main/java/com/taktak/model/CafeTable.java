@@ -56,4 +56,10 @@ public class CafeTable {
     private String shape; // "SQUARE", "ROUND", "RECTANGLE", "SOFA"
     private Integer seatsCount;
     private Integer rotation;
+
+    @Column(name = "session_token")
+    private String sessionToken; // Token de session rotatif invalidé à l'encaissement
+
+    @Column(name = "games_enabled_override")
+    private Boolean gamesEnabledOverride; // null = auto (si commande active), true = forcé ON (ami/VIP), false = forcé OFF
 }

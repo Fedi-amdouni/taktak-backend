@@ -185,7 +185,8 @@ public final class RamiState {
         if (resolved == null) return false;
         boolean hasLaidBefore = playerHasLaid.getOrDefault(playerId, false);
         int totalScore = resolved.stream().mapToInt(meld -> meld.validation().score()).sum();
-        if (!hasLaidBefore && totalScore < minMeldScore) return false;
+        boolean isFullHandOut = hand.size() == cardIds.size();
+        if (!hasLaidBefore && !isFullHandOut && totalScore < minMeldScore) return false;
 
         hand.removeIf(card -> cardIds.contains(card.getId()));
         for (ResolvedMeld meld : resolved) {
@@ -193,6 +194,9 @@ public final class RamiState {
             jokerReplacements.putAll(meld.validation().replacements());
         }
         playerHasLaid.put(playerId, true);
+        if (!hasLaidBefore && !isFullHandOut) {
+            this.minMeldScore = Math.max(this.minMeldScore, totalScore + 1);
+        }
         if (hand.isEmpty()) finishRound(playerId);
         return true;
     }

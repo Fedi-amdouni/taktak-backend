@@ -44,8 +44,8 @@ taktak:
   mail:
     from: ${TAKTAK_MAIL_FROM:}
   orders:
-    auto-archive-minutes: ${TAKTAK_ORDER_AUTO_ARCHIVE_MINUTES:5}
-    archive-check-ms: ${TAKTAK_ORDER_ARCHIVE_CHECK_MS:60000}
+    auto-archive-seconds: ${TAKTAK_ORDER_AUTO_ARCHIVE_SECONDS:15}
+    archive-check-ms: ${TAKTAK_ORDER_ARCHIVE_CHECK_MS:5000}
   auth:
     secret: ${TAKTAK_AUTH_SECRET:taktak_super_secret_jwt_key_2026_dev_mode_secret}
     # Owner accounts: username:password:cafe-slug,cafe-slug. Set TAKTAK_OWNER_ACCOUNTS in shared environments.

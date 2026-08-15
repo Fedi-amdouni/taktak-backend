@@ -60,4 +60,56 @@ public class CafeController {
     public ResponseEntity<Map<String, Object>> getAnalytics(@PathVariable String slug) {
         return ResponseEntity.ok(cafeService.getAnalytics(slug));
     }
+
+    @PutMapping("/{slug}/location")
+    public ResponseEntity<Cafe> updateLocationSettings(
+            @PathVariable String slug,
+            @RequestBody Map<String, Double> payload
+    ) {
+        Double lat = payload.get("latitude");
+        Double lng = payload.get("longitude");
+        Double radius = payload.get("geofenceRadiusMeters");
+        return ResponseEntity.ok(cafeService.updateLocationSettings(slug, lat, lng, radius));
+    }
+
+    @GetMapping("/{slug}/tables/{tableNumber}/status")
+    public ResponseEntity<Map<String, Object>> getTableStatus(
+            @PathVariable String slug,
+            @PathVariable Integer tableNumber
+    ) {
+        return ResponseEntity.ok(cafeService.getTableStatus(slug, tableNumber));
+    }
+
+    @PutMapping("/{slug}/tables/{tableNumber}/toggle-games")
+    public ResponseEntity<CafeTable> toggleTableGames(
+            @PathVariable String slug,
+            @PathVariable Integer tableNumber,
+            @RequestBody Map<String, Boolean> payload
+    ) {
+        Boolean enabled = payload.get("enabled");
+        return ResponseEntity.ok(cafeService.toggleTableGames(slug, tableNumber, enabled));
+    }
+
+    @GetMapping("/{slug}/check-wifi")
+    public ResponseEntity<Map<String, Boolean>> checkWifiStatus(@PathVariable String slug, jakarta.servlet.http.HttpServletRequest request) {
+        String clientIp = extractClientIp(request);
+        Cafe cafe = cafeService.getCafeBySlug(slug);
+        boolean isWifi = false;
+        if (cafe != null && cafe.getLastKnownWifiIp() != null && !cafe.getLastKnownWifiIp().isBlank()) {
+            isWifi = clientIp.equals(cafe.getLastKnownWifiIp());
+        }
+        return ResponseEntity.ok(Map.of("onCafeWifi", isWifi));
+    }
+
+    private String extractClientIp(jakarta.servlet.http.HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
+    }
 }

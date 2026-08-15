@@ -27,11 +27,27 @@ public class Cafe {
     @Column(name = "logo_url")
     private String logoUrl;
 
+    @Column(name = "last_known_wifi_ip")
+    private String lastKnownWifiIp;
+
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
+
+    @Column(name = "geofence_radius_meters")
+    @Builder.Default
+    private Double geofenceRadiusMeters = 120.0;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
+        if (this.geofenceRadiusMeters == null) {
+            this.geofenceRadiusMeters = 120.0;
+        }
     }
 }

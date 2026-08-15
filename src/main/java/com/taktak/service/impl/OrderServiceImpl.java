@@ -4,6 +4,7 @@ import com.taktak.dto.CreateOrderPayload;
 import com.taktak.dto.WaiterPerformanceDto;
 import com.taktak.model.*;
 import com.taktak.repository.CafeRepository;
+import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.OrderRepository;
 import com.taktak.repository.CouponRepository;
 import com.taktak.repository.TableAssignmentRepository;
@@ -49,6 +50,7 @@ public class OrderServiceImpl implements IOrderService {
 
     private final OrderRepository orderRepository;
     private final CafeRepository cafeRepository;
+    private final CafeTableRepository cafeTableRepository;
     private final WaiterRepository waiterRepository;
     private final TableAssignmentRepository tableAssignmentRepository;
     private final SimpMessagingTemplate messagingTemplate;
@@ -56,19 +58,79 @@ public class OrderServiceImpl implements IOrderService {
     @Autowired(required = false) private RewardService rewardService;
     @Autowired(required = false) private CouponRepository couponRepository;
 
-    @Value("${taktak.orders.auto-archive-minutes:5}")
-    private long autoArchiveMinutes;
+    @Value("${taktak.orders.auto-archive-seconds:15}")
+    private long autoArchiveSeconds;
 
     @Override
     @Transactional
     public Order createOrder(CreateOrderPayload payload) {
+        return createOrder(payload, null);
+    }
+
+    @Override
+    @Transactional
+    public void updateCafeWifiIp(String cafeSlug, String staffIp) {
+        if (cafeSlug == null || staffIp == null || staffIp.isBlank()) {
+            return;
+        }
+        try {
+            cafeRepository.findBySlug(cafeSlug).ifPresent(cafe -> {
+                if (!staffIp.equals(cafe.getLastKnownWifiIp())) {
+                    cafe.setLastKnownWifiIp(staffIp);
+                    cafeRepository.save(cafe);
+                }
+            });
+        } catch (Exception ignored) {
+            // Non-bloquant
+        }
+    }
+
+    @Override
+    @Transactional
+    public Order createOrder(CreateOrderPayload payload, String clientIp) {
         Cafe cafe = cafeRepository.findBySlug(payload.getCafeSlug())
                 .orElseGet(() -> cafeRepository.save(
                         Cafe.builder()
                                 .name("Monastir Lounge")
                                 .slug(payload.getCafeSlug())
+                                .latitude(35.777)
+                                .longitude(10.826)
+                                .geofenceRadiusMeters(120.0)
                                 .build()
                 ));
+
+        // Initialiser coordonnées par défaut pour Monastir Lounge si nulles
+        if (cafe.getLatitude() == null || cafe.getLongitude() == null) {
+            cafe.setLatitude(35.777);
+            cafe.setLongitude(10.826);
+            cafe.setGeofenceRadiusMeters(120.0);
+            cafeRepository.save(cafe);
+        }
+
+        // Présence & Géolocalisation non-bloquante
+        OrderPresenceStatus presenceStatus = OrderPresenceStatus.UNVERIFIED_LOCATION;
+        Double distanceMeters = null;
+
+        // 1. Test WiFi : si l'IP client correspond à l'IP WiFi active du café
+        if (clientIp != null && cafe.getLastKnownWifiIp() != null
+                && !cafe.getLastKnownWifiIp().isBlank()
+                && clientIp.equals(cafe.getLastKnownWifiIp())) {
+            presenceStatus = OrderPresenceStatus.VERIFIED_WIFI;
+        }
+
+        // 2. Test GPS : si coordonnées fournies par le client
+        if (payload.getClientLatitude() != null && payload.getClientLongitude() != null
+                && cafe.getLatitude() != null && cafe.getLongitude() != null) {
+            distanceMeters = calculateHaversineDistance(
+                    payload.getClientLatitude(), payload.getClientLongitude(),
+                    cafe.getLatitude(), cafe.getLongitude()
+            );
+
+            double maxRadius = cafe.getGeofenceRadiusMeters() != null ? cafe.getGeofenceRadiusMeters() : 120.0;
+            if (distanceMeters <= maxRadius) {
+                presenceStatus = OrderPresenceStatus.VERIFIED_GPS;
+            }
+        }
 
         BigDecimal subtotal = payload.getTotalPrice() != null ? payload.getTotalPrice() : BigDecimal.ZERO;
         Coupon coupon = null;
@@ -83,6 +145,11 @@ public class OrderServiceImpl implements IOrderService {
                 .tableId(UUID.randomUUID())
                 .tableNumber(payload.getTableNumber())
                 .status(OrderStatus.RECEIVED)
+                .presenceStatus(presenceStatus)
+                .clientLatitude(payload.getClientLatitude())
+                .clientLongitude(payload.getClientLongitude())
+                .distanceMeters(distanceMeters != null ? Math.round(distanceMeters * 10.0) / 10.0 : null)
+                .clientIp(clientIp)
                 .totalPrice(subtotal.subtract(discount))
                 .couponId(coupon != null ? coupon.getId() : null)
                 .discountAmount(discount)
@@ -201,6 +268,22 @@ public class OrderServiceImpl implements IOrderService {
             }
         });
 
+        // Rotation automatique du jeton de table à l'encaissement (PAID / ARCHIVED)
+        // Invalide immédiatement toute ancienne session mobile ouverte à distance
+        if (newStatus == OrderStatus.PAID || newStatus == OrderStatus.ARCHIVED) {
+            try {
+                if (updated.getCafeId() != null && updated.getTableNumber() != null) {
+                    cafeTableRepository.findByCafeIdAndTableNumber(updated.getCafeId().toString(), updated.getTableNumber())
+                            .ifPresent(table -> {
+                                table.setSessionToken(UUID.randomUUID().toString().substring(0, 8));
+                                cafeTableRepository.save(table);
+                            });
+                }
+            } catch (Exception ignored) {
+                // Non-bloquant
+            }
+        }
+
         if (updated.getItems() != null) {
             updated.getItems().size();
         }
@@ -213,10 +296,10 @@ public class OrderServiceImpl implements IOrderService {
         return updated;
     }
 
-    @Scheduled(fixedDelayString = "${taktak.orders.archive-check-ms:60000}")
+    @Scheduled(fixedDelayString = "${taktak.orders.archive-check-ms:5000}")
     @Transactional
     public void archivePaidOrders() {
-        archivePaidOrdersBefore(LocalDateTime.now().minusMinutes(autoArchiveMinutes));
+        archivePaidOrdersBefore(LocalDateTime.now().minusSeconds(autoArchiveSeconds));
     }
 
     public int archivePaidOrdersBefore(LocalDateTime cutoff) {
@@ -304,31 +387,49 @@ public class OrderServiceImpl implements IOrderService {
         Map<String, Object> analytics = new HashMap<>();
 
         if (cafe == null) {
-            analytics.put("totalRevenue", 0);
-            analytics.put("totalOrders", 0);
-            analytics.put("averageOrderValue", 0);
+            analytics.put("totalRevenue", BigDecimal.ZERO);
+            analytics.put("totalOrders", 0L);
+            analytics.put("averageOrderValue", BigDecimal.ZERO);
             analytics.put("topProducts", List.of());
+            analytics.put("hourlyDistribution", List.of());
+            analytics.put("statusBreakdown", Map.of());
+            analytics.put("cancellationRate", 0.0);
+            analytics.put("averageFulfillmentTimeMinutes", 0.0);
+            analytics.put("totalTips", BigDecimal.ZERO);
             return analytics;
         }
 
-        List<Order> orders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
-
-        BigDecimal totalRevenue = orders.stream()
+        List<Order> allOrders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
+        List<Order> validOrders = allOrders.stream()
                 .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
+                .collect(Collectors.toList());
+
+        BigDecimal totalRevenue = validOrders.stream()
                 .map(Order::getTotalPrice)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        long totalOrders = orders.stream().filter(o -> o.getStatus() != OrderStatus.CANCELLED).count();
+        BigDecimal totalTips = validOrders.stream()
+                .map(Order::getTipsAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        long totalOrders = validOrders.size();
+        long totalAllOrders = allOrders.size();
+        long cancelledOrders = allOrders.stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).count();
+        double cancellationRate = totalAllOrders > 0
+                ? Math.round(((double) cancelledOrders / totalAllOrders * 100.0) * 10.0) / 10.0
+                : 0.0;
+
         BigDecimal avgOrderValue = totalOrders > 0
                 ? totalRevenue.divide(BigDecimal.valueOf(totalOrders), 3, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
+        // Top products by revenue and quantity
         Map<String, Integer> productSalesCount = new HashMap<>();
         Map<String, BigDecimal> productRevenueMap = new HashMap<>();
 
-        for (Order o : orders) {
-            if (o.getStatus() == OrderStatus.CANCELLED) continue;
+        for (Order o : validOrders) {
             if (o.getItems() != null) {
                 for (OrderItem item : o.getItems()) {
                     String name = item.getProductName();
@@ -346,7 +447,7 @@ public class OrderServiceImpl implements IOrderService {
         List<Map<String, Object>> topProducts = new ArrayList<>();
         productSalesCount.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .limit(5)
+                .limit(6)
                 .forEach(entry -> {
                     Map<String, Object> itemData = new HashMap<>();
                     itemData.put("name", entry.getKey());
@@ -355,10 +456,56 @@ public class OrderServiceImpl implements IOrderService {
                     topProducts.add(itemData);
                 });
 
+        // Hourly peak distribution (08:00 to 23:00)
+        Map<Integer, Long> hourOrderCounts = new TreeMap<>();
+        Map<Integer, BigDecimal> hourRevenueMap = new TreeMap<>();
+        for (int h = 8; h <= 23; h++) {
+            hourOrderCounts.put(h, 0L);
+            hourRevenueMap.put(h, BigDecimal.ZERO);
+        }
+
+        for (Order o : validOrders) {
+            if (o.getCreatedAt() != null) {
+                int h = o.getCreatedAt().getHour();
+                if (h >= 8 && h <= 23) {
+                    hourOrderCounts.put(h, hourOrderCounts.getOrDefault(h, 0L) + 1);
+                    BigDecimal price = o.getTotalPrice() != null ? o.getTotalPrice() : BigDecimal.ZERO;
+                    hourRevenueMap.put(h, hourRevenueMap.getOrDefault(h, BigDecimal.ZERO).add(price));
+                }
+            }
+        }
+
+        List<Map<String, Object>> hourlyDistribution = new ArrayList<>();
+        hourOrderCounts.forEach((hour, count) -> {
+            Map<String, Object> hData = new HashMap<>();
+            hData.put("hour", String.format("%02dh", hour));
+            hData.put("ordersCount", count);
+            hData.put("revenue", hourRevenueMap.getOrDefault(hour, BigDecimal.ZERO));
+            hourlyDistribution.add(hData);
+        });
+
+        // Status breakdown
+        Map<String, Long> statusBreakdown = new HashMap<>();
+        for (OrderStatus st : OrderStatus.values()) {
+            statusBreakdown.put(st.name(), allOrders.stream().filter(o -> o.getStatus() == st).count());
+        }
+
+        // Average fulfillment time
+        double avgFulfillmentTimeMin = validOrders.stream()
+                .filter(o -> o.getCreatedAt() != null && o.getServedAt() != null)
+                .mapToLong(o -> Math.max(0, Duration.between(o.getCreatedAt(), o.getServedAt()).toMinutes()))
+                .average()
+                .orElse(5.5);
+
         analytics.put("totalRevenue", totalRevenue);
         analytics.put("totalOrders", totalOrders);
         analytics.put("averageOrderValue", avgOrderValue);
+        analytics.put("totalTips", totalTips);
+        analytics.put("cancellationRate", cancellationRate);
+        analytics.put("averageFulfillmentTimeMinutes", Math.round(avgFulfillmentTimeMin * 10.0) / 10.0);
         analytics.put("topProducts", topProducts);
+        analytics.put("hourlyDistribution", hourlyDistribution);
+        analytics.put("statusBreakdown", statusBreakdown);
 
         return analytics;
     }
@@ -384,20 +531,26 @@ public class OrderServiceImpl implements IOrderService {
                 .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
                 .collect(Collectors.toList());
 
+        // Map each table to its primary assigned waiter to avoid double counting
+        Map<Integer, UUID> primaryWaiterByTable = new HashMap<>();
+        for (Waiter waiter : waiters) {
+            List<TableAssignment> assignments = tableAssignmentRepository.findByWaiterId(waiter.getId());
+            for (TableAssignment a : assignments) {
+                primaryWaiterByTable.putIfAbsent(a.getTableNumber(), waiter.getId());
+            }
+        }
+
         List<WaiterPerformanceDto> result = new ArrayList<>();
 
         for (Waiter waiter : waiters) {
-            List<TableAssignment> assignments = tableAssignmentRepository.findByWaiterId(waiter.getId());
-            Set<Integer> assignedTables = assignments.stream()
-                    .map(TableAssignment::getTableNumber)
-                    .collect(Collectors.toSet());
-
             List<Order> waiterOrders = filteredOrders.stream()
                     .filter(o -> {
                         if (o.getWaiterId() != null) {
                             return o.getWaiterId().equals(waiter.getId());
                         }
-                        return assignedTables.contains(o.getTableNumber());
+                        // If no direct waiterId on order, attribute uniquely to primary assigned waiter
+                        UUID primary = primaryWaiterByTable.get(o.getTableNumber());
+                        return primary != null && primary.equals(waiter.getId());
                     })
                     .collect(Collectors.toList());
 
@@ -439,5 +592,16 @@ public class OrderServiceImpl implements IOrderService {
         result.sort((a, b) -> b.getTotalRevenue().compareTo(a.getTotalRevenue()));
 
         return result;
+    }
+
+    private double calculateHaversineDistance(double lat1, double lon1, double lat2, double lon2) {
+        final int R = 6371000; // Rayon de la Terre en mètres
+        double latDistance = Math.toRadians(lat2 - lat1);
+        double lonDistance = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
     }
 }
