@@ -10,9 +10,11 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @ConditionalOnProperty(name = "TAKTAK_SEED_ENABLED", havingValue = "true", matchIfMissing = true)
@@ -233,6 +235,87 @@ public class DataInitializer implements CommandLineRunner {
                     .imageUrl("https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?auto=format&fit=crop&w=500&q=80")
                     .build());
         }
+
+        seedExpandedMonastirMenu(cafe);
+    }
+
+    private Category ensureMonastirCategory(Cafe cafe, String name, int sortOrder) {
+        return categoryRepository.findByCafeIdAndNameIgnoreCase(cafe.getId(), name)
+                .orElseGet(() -> categoryRepository.save(Category.builder()
+                        .cafeId(cafe.getId())
+                        .name(name)
+                        .sortOrder(sortOrder)
+                        .build()));
+    }
+
+    private void addMonastirProduct(Cafe cafe, Category category, Set<String> productNames,
+                                    String name, String price, String imageUrl, int prepTimeMinutes,
+                                    String badge, String description) {
+        if (!productNames.add(name.toLowerCase(java.util.Locale.ROOT))) return;
+        productRepository.save(Product.builder()
+                .cafeId(cafe.getId())
+                .categoryId(category.getId())
+                .name(name)
+                .description(description)
+                .price(new BigDecimal(price))
+                .isAvailable(true)
+                .prepTimeMinutes(prepTimeMinutes)
+                .badge(badge)
+                .imageUrl(imageUrl)
+                .build());
+    }
+
+    private void seedExpandedMonastirMenu(Cafe cafe) {
+        Category breakfast = ensureMonastirCategory(cafe, "Petits Déjeuners & Formules", 1);
+        Category hot = ensureMonastirCategory(cafe, "Boissons Chaudes", 2);
+        Category sweet = ensureMonastirCategory(cafe, "Viennoiseries & Douceurs", 3);
+        Category cold = ensureMonastirCategory(cafe, "Boissons Fraîches", 4);
+        Category savory = ensureMonastirCategory(cafe, "Snacks Salés", 5);
+
+        Set<String> productNames = new HashSet<>();
+        for (Product product : productRepository.findByCafeId(cafe.getId())) {
+            productNames.add(product.getName().toLowerCase(java.util.Locale.ROOT));
+        }
+
+        String breakfastPhoto = "https://images.unsplash.com/photo-1565252556328-92ee4a9a0983?auto=format&fit=crop&w=900&q=80";
+        String coffeePhoto = "https://images.unsplash.com/photo-1564327367919-cb377ea6a88f?auto=format&fit=crop&w=900&q=80";
+        String pastryPhoto = "https://images.unsplash.com/photo-1647544301437-36acef1eff9d?auto=format&fit=crop&w=900&q=80";
+        String dessertPhoto = "https://images.unsplash.com/photo-1707126186318-a3dde00d600e?auto=format&fit=crop&w=900&q=80";
+        String cakePhoto = "https://images.unsplash.com/photo-1529942458412-eda69f76291d?auto=format&fit=crop&w=900&q=80";
+        String coldPhoto = "https://images.unsplash.com/photo-1664888272806-f96168766335?auto=format&fit=crop&w=900&q=80";
+        String smoothiePhoto = "https://images.unsplash.com/photo-1747232725118-bd9f8dc1ff49?auto=format&fit=crop&w=900&q=80";
+        String sandwichPhoto = "https://images.unsplash.com/photo-1709689156424-16fe0e05b47b?auto=format&fit=crop&w=900&q=80";
+        String saladPhoto = "https://images.unsplash.com/photo-1583527825770-8bd0bfb1f1c1?auto=format&fit=crop&w=900&q=80";
+
+        addMonastirProduct(cafe, breakfast, productNames, "Formule Brunch Tunisien", "12.900", breakfastPhoto, 12, "BREAKFAST", "Café ou thé, œufs, pain artisanal et douceur du jour.");
+        addMonastirProduct(cafe, breakfast, productNames, "Toast Avocat & Œuf", "10.500", saladPhoto, 10, "CHEF_SUGGESTION", "Pain grillé, avocat citronné, œuf coulant et jeunes pousses.");
+        addMonastirProduct(cafe, breakfast, productNames, "Pancakes Miel & Fruits", "9.500", dessertPhoto, 10, "NEW", "Pancakes moelleux, miel et fruits de saison.");
+        addMonastirProduct(cafe, breakfast, productNames, "Œufs Brouillés & Toast", "8.900", breakfastPhoto, 8, null, "Œufs crémeux, toast beurré et salade fraîche.");
+
+        addMonastirProduct(cafe, hot, productNames, "Double Espresso", "3.700", coffeePhoto, 3, "BEST_SELLER", "Double shot intense, servi court.");
+        addMonastirProduct(cafe, hot, productNames, "Café Crème", "4.200", coffeePhoto, 4, null, "Espresso allongé d'une touche de crème.");
+        addMonastirProduct(cafe, hot, productNames, "Latte Vanille", "5.500", coffeePhoto, 5, "CHEF_SUGGESTION", "Lait velouté, espresso et vanille douce.");
+        addMonastirProduct(cafe, hot, productNames, "Thé à la Menthe", "3.500", coffeePhoto, 5, null, "Thé vert parfumé à la menthe fraîche.");
+        addMonastirProduct(cafe, hot, productNames, "Chocolat Chaud Maison", "5.200", coffeePhoto, 6, "NEW", "Chocolat onctueux, cacao intense et lait chaud.");
+
+        addMonastirProduct(cafe, sweet, productNames, "Pain au Chocolat", "2.500", pastryPhoto, 3, "BEST_SELLER", "Viennoiserie pur beurre au chocolat fondant.");
+        addMonastirProduct(cafe, sweet, productNames, "Cookie Trois Chocolats", "3.800", dessertPhoto, 3, null, "Cookie croustillant, chocolat noir, lait et blanc.");
+        addMonastirProduct(cafe, sweet, productNames, "Cheesecake Fruits Rouges", "6.900", cakePhoto, 5, "CHEF_SUGGESTION", "Cheesecake crémeux, coulis de fruits rouges.");
+        addMonastirProduct(cafe, sweet, productNames, "Fondant Chocolat", "6.500", dessertPhoto, 7, "BEST_SELLER", "Cœur coulant au chocolat noir.");
+        addMonastirProduct(cafe, sweet, productNames, "Tiramisu Maison", "7.200", cakePhoto, 5, null, "Crème mascarpone, café et cacao.");
+
+        addMonastirProduct(cafe, cold, productNames, "Citronnade Menthe", "5.000", coldPhoto, 4, "BEST_SELLER", "Citron frais, menthe et glace pilée.");
+        addMonastirProduct(cafe, cold, productNames, "Smoothie Mangue Passion", "7.500", smoothiePhoto, 6, "CHEF_SUGGESTION", "Mangue, passion et banane mixées minute.");
+        addMonastirProduct(cafe, cold, productNames, "Iced Latte Caramel", "6.500", coldPhoto, 5, "NEW", "Espresso, lait frais, caramel et glaçons.");
+        addMonastirProduct(cafe, cold, productNames, "Jus d'Orange Pressé", "6.000", coldPhoto, 5, null, "Oranges pressées à la demande.");
+        addMonastirProduct(cafe, cold, productNames, "Thé Glacé Pêche", "5.500", coldPhoto, 4, null, "Thé noir, pêche et citron frais.");
+        addMonastirProduct(cafe, cold, productNames, "Frappé Chocolat", "7.000", smoothiePhoto, 6, "BEST_SELLER", "Boisson glacée au chocolat et crème légère.");
+
+        addMonastirProduct(cafe, savory, productNames, "Club Sandwich Poulet", "12.500", sandwichPhoto, 10, "BEST_SELLER", "Poulet mariné, œuf, salade, tomate et frites.");
+        addMonastirProduct(cafe, savory, productNames, "Panini Thon Fromage", "10.900", sandwichPhoto, 9, null, "Thon, fromage fondant, tomate et herbes.");
+        addMonastirProduct(cafe, savory, productNames, "Toast Mozzarella Pesto", "10.500", sandwichPhoto, 8, "NEW", "Mozzarella fondante, pesto basilic et tomate.");
+        addMonastirProduct(cafe, savory, productNames, "Salade César", "13.500", saladPhoto, 9, "CHEF_SUGGESTION", "Poulet grillé, parmesan, croûtons et sauce César.");
+        addMonastirProduct(cafe, savory, productNames, "Frites Maison", "5.000", saladPhoto, 7, null, "Pommes de terre fraîches, sel marin et sauce au choix.");
     }
 
     private void initMenuForCarthage(Cafe cafe) {

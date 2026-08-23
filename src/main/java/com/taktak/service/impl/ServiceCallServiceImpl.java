@@ -8,8 +8,10 @@ import com.taktak.repository.ServiceCallRepository;
 import com.taktak.service.IServiceCallService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +30,10 @@ public class ServiceCallServiceImpl implements IServiceCallService {
     public ServiceCall createServiceCall(String slug, CreateServiceCallPayload payload) {
         Cafe cafe = cafeRepository.findBySlug(slug)
                 .orElseThrow(() -> new RuntimeException("Café non trouvé"));
+
+        if (!Boolean.TRUE.equals(cafe.getWaiterCallsEnabled())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Les appels serveur sont desactives pour ce cafe");
+        }
 
         ServiceCall call = ServiceCall.builder()
                 .cafeId(cafe.getId())

@@ -79,6 +79,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     private boolean requiresAdmin(String method, String path) {
         if (path.contains("/analytics")) return true;
         if (path.matches("/api/cafes/[^/]+/location") && "PUT".equals(method)) return true;
+        if (path.matches("/api/cafes/[^/]+/features") && "PUT".equals(method)) return true;
         if (path.startsWith("/api/categories") || path.startsWith("/api/products")) return true;
         if ((path.contains("/floor-plans") && !"GET".equals(method))
                 || path.matches("/api/cafes/[^/]+/tables/batch")) return true;

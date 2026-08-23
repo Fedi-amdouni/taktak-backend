@@ -7,10 +7,12 @@ import java.util.List;
 import java.util.Collection;
 import java.util.UUID;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findByCafeIdOrderByCreatedAtDesc(UUID cafeId);
     List<Order> findByCafeIdAndStatusOrderByCreatedAtDesc(UUID cafeId, OrderStatus status);
     List<Order> findByCafeIdAndStatusIn(UUID cafeId, Collection<OrderStatus> statuses);
     List<Order> findByStatusAndUpdatedAtBefore(OrderStatus status, LocalDateTime cutoff);
+    Optional<Order> findByCafeIdAndClientOrderId(UUID cafeId, String clientOrderId);
 }

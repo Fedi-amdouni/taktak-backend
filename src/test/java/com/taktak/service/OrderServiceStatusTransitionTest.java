@@ -1,11 +1,13 @@
 package com.taktak.service;
 
+import com.taktak.dto.CreateOrderPayload;
 import com.taktak.model.Cafe;
 import com.taktak.model.Order;
 import com.taktak.model.OrderStatus;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.OrderRepository;
+import com.taktak.repository.ProductRepository;
 import com.taktak.repository.TableAssignmentRepository;
 import com.taktak.repository.WaiterRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +40,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 class OrderServiceStatusTransitionTest {
 
@@ -55,6 +58,7 @@ class OrderServiceStatusTransitionTest {
         messagingTemplate = mock(SimpMessagingTemplate.class);
         orderService = new OrderServiceImpl(
                 orderRepository,
+                mock(ProductRepository.class),
                 cafeRepository,
                 cafeTableRepository,
                 mock(WaiterRepository.class),
@@ -138,6 +142,46 @@ class OrderServiceStatusTransitionTest {
     }
 
     @Test
+    void repeatingTheSameClientOrderReturnsTheExistingOrder() {
+        UUID cafeId = UUID.randomUUID();
+        String clientOrderId = UUID.randomUUID().toString();
+        String participantId = UUID.randomUUID().toString();
+        Cafe cafe = cafe(cafeId);
+        Order existing = order(UUID.randomUUID(), cafeId, OrderStatus.RECEIVED);
+        existing.setClientOrderId(clientOrderId);
+        existing.setParticipantId(participantId);
+
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(orderRepository.findByCafeIdAndClientOrderId(cafeId, clientOrderId)).thenReturn(Optional.of(existing));
+
+        Order result = orderService.createOrder(createPayload(clientOrderId, participantId));
+
+        assertSame(existing, result);
+        verify(orderRepository, never()).saveAndFlush(any(Order.class));
+        verify(messagingTemplate, never()).convertAndSend(any(String.class), any(Order.class));
+    }
+
+    @Test
+    void aNewClientOrderIdCreatesAnAdditionalOrderForTheSameParticipantAndTable() {
+        UUID cafeId = UUID.randomUUID();
+        String participantId = UUID.randomUUID().toString();
+        Cafe cafe = cafe(cafeId);
+
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(orderRepository.findByCafeIdAndClientOrderId(any(UUID.class), any(String.class)))
+                .thenReturn(Optional.empty());
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Order first = orderService.createOrder(createPayload(UUID.randomUUID().toString(), participantId));
+        Order additional = orderService.createOrder(createPayload(UUID.randomUUID().toString(), participantId));
+
+        assertEquals(participantId, first.getParticipantId());
+        assertEquals(participantId, additional.getParticipantId());
+        verify(orderRepository, times(2)).saveAndFlush(any(Order.class));
+        verify(messagingTemplate, times(2)).convertAndSend(any(String.class), any(Order.class));
+    }
+
+    @Test
     void deletesOnlyInProgressOrdersForTheRequestedCafe() {
         UUID cafeId = UUID.randomUUID();
         Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
@@ -213,5 +257,27 @@ class OrderServiceStatusTransitionTest {
                 .totalPrice(BigDecimal.TEN)
                 .items(new ArrayList<>())
                 .build();
+    }
+
+    private static Cafe cafe(UUID cafeId) {
+        return Cafe.builder()
+                .id(cafeId)
+                .slug("monastir-lounge")
+                .name("Monastir Lounge")
+                .latitude(35.777)
+                .longitude(10.826)
+                .geofenceRadiusMeters(120.0)
+                .build();
+    }
+
+    private static CreateOrderPayload createPayload(String clientOrderId, String participantId) {
+        CreateOrderPayload payload = new CreateOrderPayload();
+        payload.setCafeSlug("monastir-lounge");
+        payload.setTableNumber(5);
+        payload.setTotalPrice(BigDecimal.TEN);
+        payload.setClientOrderId(clientOrderId);
+        payload.setParticipantId(participantId);
+        payload.setItems(List.of());
+        return payload;
     }
 }

@@ -9,7 +9,13 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "orders")
+@Table(
+        name = "orders",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_orders_cafe_client_order_jpa",
+                columnNames = {"cafe_id", "client_order_id"}
+        )
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -29,6 +35,12 @@ public class Order {
 
     @Column(name = "table_number", nullable = false)
     private Integer tableNumber;
+
+    @Column(name = "participant_id", length = 64)
+    private String participantId;
+
+    @Column(name = "client_order_id", length = 64)
+    private String clientOrderId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -69,6 +81,12 @@ public class Order {
 
     @Column(name = "distance_meters")
     private Double distanceMeters;
+
+    @Column(name = "estimated_wait_minutes")
+    private Integer estimatedWaitMinutes;
+
+    @Column(name = "estimated_ready_at")
+    private LocalDateTime estimatedReadyAt;
 
     @Column(name = "client_ip")
     private String clientIp;

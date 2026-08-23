@@ -72,6 +72,14 @@ public class CafeController {
         return ResponseEntity.ok(cafeService.updateLocationSettings(slug, lat, lng, radius));
     }
 
+    @PutMapping("/{slug}/features")
+    public ResponseEntity<Cafe> updateFeatureSettings(
+            @PathVariable String slug,
+            @RequestBody Map<String, Object> payload
+    ) {
+        return ResponseEntity.ok(cafeService.updateFeatureSettings(slug, payload));
+    }
+
     @GetMapping("/{slug}/tables/{tableNumber}/status")
     public ResponseEntity<Map<String, Object>> getTableStatus(
             @PathVariable String slug,

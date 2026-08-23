@@ -40,6 +40,34 @@ public class Cafe {
     @Builder.Default
     private Double geofenceRadiusMeters = 120.0;
 
+    @Column(name = "ordering_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    @Builder.Default
+    private Boolean orderingEnabled = true;
+
+    @Column(name = "waiter_calls_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    @Builder.Default
+    private Boolean waiterCallsEnabled = true;
+
+    @Column(name = "games_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    @Builder.Default
+    private Boolean gamesEnabled = true;
+
+    @Column(name = "ambiance_voting_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    @Builder.Default
+    private Boolean ambianceVotingEnabled = true;
+
+    @Column(name = "rewards_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    @Builder.Default
+    private Boolean rewardsEnabled = true;
+
+    @Column(name = "tv_menu_enabled", nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    @Builder.Default
+    private Boolean tvMenuEnabled = true;
+
+    @Column(name = "tv_menu_style", nullable = false, columnDefinition = "VARCHAR(32) DEFAULT 'ELEGANT'")
+    @Builder.Default
+    private String tvMenuStyle = "ELEGANT";
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -49,5 +77,12 @@ public class Cafe {
         if (this.geofenceRadiusMeters == null) {
             this.geofenceRadiusMeters = 120.0;
         }
+        if (this.orderingEnabled == null) this.orderingEnabled = true;
+        if (this.waiterCallsEnabled == null) this.waiterCallsEnabled = true;
+        if (this.gamesEnabled == null) this.gamesEnabled = true;
+        if (this.ambianceVotingEnabled == null) this.ambianceVotingEnabled = true;
+        if (this.rewardsEnabled == null) this.rewardsEnabled = true;
+        if (this.tvMenuEnabled == null) this.tvMenuEnabled = true;
+        if (this.tvMenuStyle == null || this.tvMenuStyle.isBlank()) this.tvMenuStyle = "ELEGANT";
     }
 }

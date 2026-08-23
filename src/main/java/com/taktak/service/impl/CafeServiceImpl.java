@@ -181,6 +181,26 @@ public class CafeServiceImpl implements ICafeService {
 
     @Override
     @Transactional
+    public Cafe updateFeatureSettings(String slug, Map<String, Object> settings) {
+        Cafe cafe = cafeRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("CafÃ© introuvable : " + slug));
+
+        if (settings.containsKey("orderingEnabled")) cafe.setOrderingEnabled(Boolean.TRUE.equals(settings.get("orderingEnabled")));
+        if (settings.containsKey("waiterCallsEnabled")) cafe.setWaiterCallsEnabled(Boolean.TRUE.equals(settings.get("waiterCallsEnabled")));
+        if (settings.containsKey("gamesEnabled")) cafe.setGamesEnabled(Boolean.TRUE.equals(settings.get("gamesEnabled")));
+        if (settings.containsKey("ambianceVotingEnabled")) cafe.setAmbianceVotingEnabled(Boolean.TRUE.equals(settings.get("ambianceVotingEnabled")));
+        if (settings.containsKey("rewardsEnabled")) cafe.setRewardsEnabled(Boolean.TRUE.equals(settings.get("rewardsEnabled")));
+        if (settings.containsKey("tvMenuEnabled")) cafe.setTvMenuEnabled(Boolean.TRUE.equals(settings.get("tvMenuEnabled")));
+        Object requestedStyle = settings.get("tvMenuStyle");
+        if (requestedStyle instanceof String style && java.util.Set.of("ELEGANT", "ESPRESSO", "URBAN").contains(style)) {
+            cafe.setTvMenuStyle(style);
+        }
+
+        return cafeRepository.save(cafe);
+    }
+
+    @Override
+    @Transactional
     public CafeTable toggleTableGames(String slug, Integer tableNumber, Boolean enabled) {
         Cafe cafe = cafeRepository.findBySlug(slug)
                 .orElseThrow(() -> new IllegalArgumentException("Café introuvable : " + slug));
@@ -238,7 +258,8 @@ public class CafeServiceImpl implements ICafeService {
         }
 
         // Si override fixé par staff (true ou false), sinon automatique selon commande active
-        boolean gamesAllowed = override != null ? override : hasActiveOrders;
+        boolean cafeGamesEnabled = Boolean.TRUE.equals(cafe.getGamesEnabled());
+        boolean gamesAllowed = cafeGamesEnabled && (override != null ? override : hasActiveOrders);
         boolean sessionValid = sessionTokenMatches(currentSessionToken, providedSessionToken);
 
         return Map.of(

@@ -6,6 +6,7 @@ import com.taktak.model.*;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.OrderRepository;
+import com.taktak.repository.ProductRepository;
 import com.taktak.repository.CouponRepository;
 import com.taktak.repository.TableAssignmentRepository;
 import com.taktak.repository.WaiterRepository;
@@ -49,6 +50,7 @@ public class OrderServiceImpl implements IOrderService {
     );
 
     private final OrderRepository orderRepository;
+    private final ProductRepository productRepository;
     private final CafeRepository cafeRepository;
     private final CafeTableRepository cafeTableRepository;
     private final WaiterRepository waiterRepository;
@@ -88,6 +90,13 @@ public class OrderServiceImpl implements IOrderService {
     @Override
     @Transactional
     public Order createOrder(CreateOrderPayload payload, String clientIp) {
+        if (payload == null || payload.getCafeSlug() == null || payload.getCafeSlug().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Le café est obligatoire");
+        }
+
+        String clientOrderId = normalizeClientIdentifier(payload.getClientOrderId(), "clientOrderId");
+        String participantId = normalizeClientIdentifier(payload.getParticipantId(), "participantId");
+
         Cafe cafe = cafeRepository.findBySlug(payload.getCafeSlug())
                 .orElseGet(() -> cafeRepository.save(
                         Cafe.builder()
@@ -98,6 +107,26 @@ public class OrderServiceImpl implements IOrderService {
                                 .geofenceRadiusMeters(120.0)
                                 .build()
                 ));
+
+        if (!Boolean.TRUE.equals(cafe.getOrderingEnabled())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "La commande en ligne est dÃ©sactivÃ©e pour ce cafÃ©");
+        }
+
+        if (clientOrderId != null) {
+            Optional<Order> existingOrder = orderRepository.findByCafeIdAndClientOrderId(cafe.getId(), clientOrderId);
+            if (existingOrder.isPresent()) {
+                Order existing = existingOrder.get();
+                boolean sameTable = Objects.equals(existing.getTableNumber(), payload.getTableNumber());
+                boolean sameParticipant = Objects.equals(existing.getParticipantId(), participantId);
+                if (!sameTable || !sameParticipant) {
+                    throw new ResponseStatusException(
+                            HttpStatus.CONFLICT,
+                            "Cette référence de commande est déjà utilisée"
+                    );
+                }
+                return existing;
+            }
+        }
 
         // Initialiser coordonnées par défaut pour Monastir Lounge si nulles
         if (cafe.getLatitude() == null || cafe.getLongitude() == null) {
@@ -140,15 +169,41 @@ public class OrderServiceImpl implements IOrderService {
             discount = subtotal.multiply(coupon.getDiscountPercent()).divide(new BigDecimal("100"), 3, RoundingMode.HALF_UP);
         }
 
+        Set<UUID> productIds = payload.getItems().stream()
+                .map(CreateOrderPayload.OrderItemPayload::getProductId)
+                .filter(Objects::nonNull)
+                .map(id -> {
+                    try {
+                        return UUID.fromString(id);
+                    } catch (IllegalArgumentException ignored) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        int longestPrepMinutes = productRepository.findAllById(productIds).stream()
+                .map(Product::getPrepTimeMinutes)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(7);
+        int activeQueueSize = orderRepository.findByCafeIdAndStatusIn(cafe.getId(), IN_PROGRESS_STATUSES).size();
+        int estimatedWaitMinutes = Math.min(40, Math.max(5, longestPrepMinutes + Math.min(12, activeQueueSize * 2)));
+        LocalDateTime estimatedReadyAt = LocalDateTime.now().plusMinutes(estimatedWaitMinutes);
+
         Order order = Order.builder()
                 .cafeId(cafe.getId())
                 .tableId(UUID.randomUUID())
                 .tableNumber(payload.getTableNumber())
+                .participantId(participantId)
+                .clientOrderId(clientOrderId)
                 .status(OrderStatus.RECEIVED)
                 .presenceStatus(presenceStatus)
                 .clientLatitude(payload.getClientLatitude())
                 .clientLongitude(payload.getClientLongitude())
                 .distanceMeters(distanceMeters != null ? Math.round(distanceMeters * 10.0) / 10.0 : null)
+                .estimatedWaitMinutes(estimatedWaitMinutes)
+                .estimatedReadyAt(estimatedReadyAt)
                 .clientIp(clientIp)
                 .totalPrice(subtotal.subtract(discount))
                 .couponId(coupon != null ? coupon.getId() : null)
@@ -177,7 +232,10 @@ public class OrderServiceImpl implements IOrderService {
             order.addItem(item);
         }
 
-        Order saved = orderRepository.save(order);
+        // La contrainte unique en base empêche deux insertions concurrentes avec la même clé.
+        // Si la réponse réseau se perd, le client réessaie avec cette même clé et récupère
+        // la commande existante via le contrôle placé au début de la méthode.
+        Order saved = orderRepository.saveAndFlush(order);
 
         if (coupon != null) {
             coupon.setStatus(CouponStatus.RESERVED);
@@ -603,5 +661,16 @@ public class OrderServiceImpl implements IOrderService {
                 * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
+    }
+
+    private String normalizeClientIdentifier(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > 64) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " est trop long");
+        }
+        return normalized;
     }
 }
