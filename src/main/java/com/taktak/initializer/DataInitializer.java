@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.springframework.core.annotation.Order;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -20,6 +21,7 @@ import java.util.Set;
 @ConditionalOnProperty(name = "TAKTAK_SEED_ENABLED", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
+@Order(10)
 public class DataInitializer implements CommandLineRunner {
 
     private final CafeRepository cafeRepository;
