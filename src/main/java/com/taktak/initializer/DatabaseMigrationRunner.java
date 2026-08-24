@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.ConnectionCallback;
@@ -14,6 +15,10 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Statement;
 
 @Component
+@ConditionalOnProperty(
+        name = "taktak.migrations.run-on-startup",
+        havingValue = "true",
+        matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 @Order(20)

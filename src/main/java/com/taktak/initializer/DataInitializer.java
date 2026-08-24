@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Component
-@ConditionalOnProperty(name = "TAKTAK_SEED_ENABLED", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "taktak.seed.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 @Order(10)

@@ -3,6 +3,7 @@ package com.taktak.initializer;
 import com.taktak.repository.PartyQuestionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -11,6 +12,10 @@ import org.springframework.stereotype.Component;
 import javax.sql.DataSource;
 
 @Component
+@ConditionalOnProperty(
+        name = "taktak.party-questions.sync-on-startup",
+        havingValue = "true",
+        matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 public class PartyQuestionCatalogInitializer implements CommandLineRunner {

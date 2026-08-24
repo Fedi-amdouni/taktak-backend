@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -350,7 +349,6 @@ public class OrderServiceImpl implements IOrderService {
         return updated;
     }
 
-    @Scheduled(fixedDelayString = "${taktak.orders.archive-check-ms:5000}")
     @Transactional
     public void archivePaidOrders() {
         archivePaidOrdersBefore(LocalDateTime.now().minusSeconds(autoArchiveSeconds));
