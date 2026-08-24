@@ -69,6 +69,7 @@ public class AuthInterceptor implements HandlerInterceptor {
                 || path.matches("/api/v1/cafes/[^/]+/ambiance/active")
                 || path.matches("/api/v1/cafes/[^/]+/waiters/active"))) return true;
         if ("POST".equals(method) && (path.equals("/api/orders")
+                || path.matches("/api/cafes/[^/]+/orders/[0-9a-fA-F-]{36}/transfer-table")
                 || path.matches("/api/cafes/[^/]+/staff-heartbeat")
                 || path.matches("/api/cafes/[^/]+/service-calls")
                 || path.matches("/api/cafes/[^/]+/rewards/(feedback|coupons/validate)")

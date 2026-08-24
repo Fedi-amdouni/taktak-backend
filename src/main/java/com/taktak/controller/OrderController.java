@@ -75,9 +75,11 @@ public class OrderController {
         return ResponseEntity.ok(updated);
     }
 
-    @PostMapping("/orders/{id}/transfer-table")
-    public ResponseEntity<Order> transferOrderTable(@PathVariable UUID id, @RequestBody TableTransferDto dto) {
-        Order updated = orderService.transferOrderTable(id, dto.getNewTableNumber());
-        return ResponseEntity.ok(updated);
+    @PostMapping("/cafes/{slug}/orders/{id}/transfer-table")
+    public ResponseEntity<List<Order>> transferOrderTable(
+            @PathVariable String slug,
+            @PathVariable UUID id,
+            @RequestBody TableTransferDto dto) {
+        return ResponseEntity.ok(orderService.transferOrderTable(id, slug, dto));
     }
 }

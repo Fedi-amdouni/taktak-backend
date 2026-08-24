@@ -2,6 +2,7 @@ package com.taktak.service.impl;
 
 import com.taktak.dto.CreateOrderPayload;
 import com.taktak.dto.WaiterPerformanceDto;
+import com.taktak.dto.TableTransferDto;
 import com.taktak.model.*;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
@@ -270,7 +271,7 @@ public class OrderServiceImpl implements IOrderService {
     @Override
     @Transactional
     public Order updateOrderStatus(UUID orderId, OrderStatus newStatus) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Commande introuvable"));
 
         if (newStatus == null) {
@@ -394,33 +395,79 @@ public class OrderServiceImpl implements IOrderService {
 
     @Override
     @Transactional
-    public Order transferOrderTable(UUID orderId, Integer newTableNumber) {
-        Optional<Order> optionalOrder = orderRepository.findById(orderId);
-        if (optionalOrder.isEmpty()) {
-            return Order.builder()
-                    .id(orderId)
-                    .status(OrderStatus.RECEIVED)
-                    .totalPrice(BigDecimal.ZERO)
-                    .tableNumber(newTableNumber)
-                    .items(List.of())
-                    .build();
+    public List<Order> transferOrderTable(UUID orderId, String cafeSlug, TableTransferDto request) {
+        if (request == null
+                || request.getSourceTableNumber() == null
+                || request.getSourceTableNumber() <= 0
+                || request.getNewTableNumber() == null
+                || request.getNewTableNumber() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Les tables source et cible sont obligatoires");
         }
 
-        Order order = optionalOrder.get();
-        order.setTableNumber(newTableNumber);
-        order.setTableChangedAlert(true);
-        Order updated = orderRepository.save(order);
-
-        if (updated.getItems() != null) {
-            updated.getItems().size();
+        String participantId = normalizeClientIdentifier(request.getParticipantId(), "participantId");
+        if (participantId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Le participant est obligatoire");
         }
 
-        Cafe cafe = cafeRepository.findById(updated.getCafeId()).orElse(null);
-        if (cafe != null) {
-            messagingTemplate.convertAndSend("/topic/orders/" + cafe.getSlug(), updated);
+        Cafe cafe = cafeRepository.findBySlug(cafeSlug)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Café introuvable"));
+        Order anchor = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Commande introuvable"));
+
+        if (!Objects.equals(anchor.getCafeId(), cafe.getId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Commande introuvable");
+        }
+        if (!Objects.equals(anchor.getParticipantId(), participantId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cette commande appartient à une autre session");
         }
 
-        return updated;
+        CafeTable targetTable = cafeTableRepository
+                .findByCafeIdAndTableNumber(cafe.getId().toString(), request.getNewTableNumber())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Table cible introuvable"));
+        requireMatchingTableToken(targetTable.getSessionToken(), request.getTargetSessionToken());
+
+        if (Objects.equals(request.getSourceTableNumber(), request.getNewTableNumber())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La nouvelle table doit être différente");
+        }
+        if (!IN_PROGRESS_STATUSES.contains(anchor.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cette commande ne peut plus être transférée");
+        }
+
+        CafeTable sourceTable = cafeTableRepository
+                .findByCafeIdAndTableNumber(cafe.getId().toString(), request.getSourceTableNumber())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Table source introuvable"));
+        requireMatchingTableToken(sourceTable.getSessionToken(), request.getSourceSessionToken());
+
+        if (Objects.equals(anchor.getTableNumber(), request.getNewTableNumber())) {
+            return orderRepository.findByCafeIdAndTableNumberAndParticipantIdAndStatusIn(
+                    cafe.getId(), request.getNewTableNumber(), participantId, IN_PROGRESS_STATUSES);
+        }
+        if (!Objects.equals(anchor.getTableNumber(), request.getSourceTableNumber())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "La commande n'est plus sur la table source");
+        }
+
+        List<Order> orders = orderRepository.findByCafeIdAndTableNumberAndParticipantIdAndStatusIn(
+                cafe.getId(), request.getSourceTableNumber(), participantId, IN_PROGRESS_STATUSES);
+        if (orders.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Aucune commande active à transférer");
+        }
+
+        orders.forEach(order -> {
+            order.setTableNumber(request.getNewTableNumber());
+            order.setTableChangedAlert(true);
+        });
+        List<Order> transferred = orderRepository.saveAll(orders);
+        transferred.forEach(order -> messagingTemplate.convertAndSend("/topic/orders/" + cafeSlug, order));
+        return transferred;
+    }
+
+    private void requireMatchingTableToken(String expected, String provided) {
+        if (expected == null || expected.isBlank() || provided == null || provided.isBlank()
+                || !java.security.MessageDigest.isEqual(
+                expected.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                provided.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Jeton de table invalide");
+        }
     }
 
     @Override

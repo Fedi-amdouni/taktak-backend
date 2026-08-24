@@ -2,6 +2,7 @@ package com.taktak.service;
 
 import com.taktak.dto.CreateOrderPayload;
 import com.taktak.dto.WaiterPerformanceDto;
+import com.taktak.dto.TableTransferDto;
 import com.taktak.model.Order;
 import com.taktak.model.OrderStatus;
 
@@ -16,7 +17,7 @@ public interface IOrderService {
     List<Order> getOrdersForCafe(String cafeSlug);
     Order getOrder(UUID orderId);
     Order updateOrderStatus(UUID orderId, OrderStatus newStatus);
-    Order transferOrderTable(UUID orderId, Integer newTableNumber);
+    List<Order> transferOrderTable(UUID orderId, String cafeSlug, TableTransferDto request);
     int archiveInProgressOrders(String cafeSlug);
     Map<String, Object> getAnalyticsForCafe(String cafeSlug);
     List<WaiterPerformanceDto> getWaiterPerformanceMetrics(String cafeSlug, String period);

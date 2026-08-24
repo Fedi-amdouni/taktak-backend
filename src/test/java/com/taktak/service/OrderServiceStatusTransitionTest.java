@@ -1,6 +1,7 @@
 package com.taktak.service;
 
 import com.taktak.dto.CreateOrderPayload;
+import com.taktak.dto.TableTransferDto;
 import com.taktak.model.Cafe;
 import com.taktak.model.CafeTable;
 import com.taktak.model.Order;
@@ -71,6 +72,182 @@ class OrderServiceStatusTransitionTest {
         );
     }
 
+    @Test
+    void transfersEveryActiveOrderOwnedByTheParticipantToAValidatedTargetTable() {
+        UUID cafeId = UUID.randomUUID();
+        UUID anchorId = UUID.randomUUID();
+        Order anchor = order(anchorId, cafeId, OrderStatus.RECEIVED);
+        anchor.setTableNumber(5);
+        anchor.setParticipantId("participant-1");
+        Order second = order(UUID.randomUUID(), cafeId, OrderStatus.PREPARING);
+        second.setTableNumber(5);
+        second.setParticipantId("participant-1");
+
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
+        CafeTable sourceTable = new CafeTable();
+        sourceTable.setCafeId(cafeId.toString());
+        sourceTable.setTableNumber(5);
+        sourceTable.setSessionToken("source-token");
+        CafeTable targetTable = new CafeTable();
+        targetTable.setCafeId(cafeId.toString());
+        targetTable.setTableNumber(8);
+        targetTable.setSessionToken("target-token");
+
+        TableTransferDto request = new TableTransferDto();
+        request.setSourceTableNumber(5);
+        request.setNewTableNumber(8);
+        request.setParticipantId("participant-1");
+        request.setSourceSessionToken("source-token");
+        request.setTargetSessionToken("target-token");
+
+        when(orderRepository.findByIdForUpdate(anchorId)).thenReturn(Optional.of(anchor));
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 5)).thenReturn(Optional.of(sourceTable));
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 8)).thenReturn(Optional.of(targetTable));
+        when(orderRepository.findByCafeIdAndTableNumberAndParticipantIdAndStatusIn(
+                org.mockito.ArgumentMatchers.eq(cafeId),
+                org.mockito.ArgumentMatchers.eq(5),
+                org.mockito.ArgumentMatchers.eq("participant-1"),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(List.of(anchor, second));
+        when(orderRepository.saveAll(List.of(anchor, second))).thenReturn(List.of(anchor, second));
+
+        List<Order> transferred = orderService.transferOrderTable(anchorId, "monastir-lounge", request);
+
+        assertEquals(2, transferred.size());
+        assertEquals(8, anchor.getTableNumber());
+        assertEquals(8, second.getTableNumber());
+        assertTrue(anchor.getTableChangedAlert());
+        assertTrue(second.getTableChangedAlert());
+    }
+
+    @Test
+    void rejectsTransferWhenTheTargetQrTokenDoesNotMatch() {
+        UUID cafeId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order anchor = order(orderId, cafeId, OrderStatus.RECEIVED);
+        anchor.setTableNumber(5);
+        anchor.setParticipantId("participant-1");
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").build();
+        CafeTable targetTable = new CafeTable();
+        targetTable.setCafeId(cafeId.toString());
+        targetTable.setTableNumber(8);
+        targetTable.setSessionToken("real-target-token");
+
+        TableTransferDto request = transferRequest("wrong-target-token");
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(anchor));
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 8))
+                .thenReturn(Optional.of(targetTable));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.transferOrderTable(orderId, "monastir-lounge", request)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
+        assertEquals(5, anchor.getTableNumber());
+        verify(orderRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void rejectsIdempotentRetryWhenTheSourceQrTokenDoesNotMatch() {
+        UUID cafeId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order anchor = order(orderId, cafeId, OrderStatus.RECEIVED);
+        anchor.setTableNumber(8);
+        anchor.setParticipantId("participant-1");
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").build();
+        CafeTable sourceTable = new CafeTable();
+        sourceTable.setCafeId(cafeId.toString());
+        sourceTable.setTableNumber(5);
+        sourceTable.setSessionToken("real-source-token");
+        CafeTable targetTable = new CafeTable();
+        targetTable.setCafeId(cafeId.toString());
+        targetTable.setTableNumber(8);
+        targetTable.setSessionToken("target-token");
+
+        TableTransferDto request = transferRequest("target-token");
+        request.setSourceSessionToken("wrong-source-token");
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(anchor));
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 5))
+                .thenReturn(Optional.of(sourceTable));
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 8))
+                .thenReturn(Optional.of(targetTable));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.transferOrderTable(orderId, "monastir-lounge", request)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatusCode());
+        verify(orderRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void returnsNotFoundInsteadOfInventingAnOrderDuringTransfer() {
+        UUID cafeId = UUID.randomUUID();
+        UUID missingOrderId = UUID.randomUUID();
+        when(cafeRepository.findBySlug("monastir-lounge"))
+                .thenReturn(Optional.of(Cafe.builder().id(cafeId).slug("monastir-lounge").build()));
+        when(orderRepository.findByIdForUpdate(missingOrderId)).thenReturn(Optional.empty());
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.transferOrderTable(
+                        missingOrderId,
+                        "monastir-lounge",
+                        transferRequest("target-token")
+                )
+        );
+
+        assertEquals(HttpStatus.NOT_FOUND, error.getStatusCode());
+        verify(orderRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void rejectsTransferOfATerminalOrder() {
+        UUID cafeId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order paidOrder = order(orderId, cafeId, OrderStatus.PAID);
+        paidOrder.setTableNumber(5);
+        paidOrder.setParticipantId("participant-1");
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").build();
+        CafeTable targetTable = new CafeTable();
+        targetTable.setCafeId(cafeId.toString());
+        targetTable.setTableNumber(8);
+        targetTable.setSessionToken("target-token");
+
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(paidOrder));
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 8))
+                .thenReturn(Optional.of(targetTable));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.transferOrderTable(
+                        orderId,
+                        "monastir-lounge",
+                        transferRequest("target-token")
+                )
+        );
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatusCode());
+        assertEquals(5, paidOrder.getTableNumber());
+        verify(orderRepository, never()).saveAll(any());
+    }
+
+    private TableTransferDto transferRequest(String targetToken) {
+        TableTransferDto request = new TableTransferDto();
+        request.setSourceTableNumber(5);
+        request.setNewTableNumber(8);
+        request.setParticipantId("participant-1");
+        request.setSourceSessionToken("source-token");
+        request.setTargetSessionToken(targetToken);
+        return request;
+    }
+
     @ParameterizedTest(name = "{0} -> {1} est autorisée")
     @MethodSource("allowedTransitions")
     void acceptsEveryAllowedTransition(OrderStatus current, OrderStatus next) {
@@ -79,7 +256,7 @@ class OrderServiceStatusTransitionTest {
         Order order = order(orderId, cafeId, current);
         Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
 
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
         when(orderRepository.save(order)).thenReturn(order);
         when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
 
@@ -92,6 +269,28 @@ class OrderServiceStatusTransitionTest {
     }
 
     @Test
+    void statusUpdateUsesTheLatestLockedOrderAfterAConcurrentTableTransfer() {
+        UUID orderId = UUID.randomUUID();
+        UUID cafeId = UUID.randomUUID();
+        Order staleOrder = order(orderId, cafeId, OrderStatus.RECEIVED);
+        staleOrder.setTableNumber(5);
+        Order lockedOrder = order(orderId, cafeId, OrderStatus.PREPARING);
+        lockedOrder.setTableNumber(8);
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").build();
+
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(staleOrder));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(lockedOrder));
+        when(orderRepository.save(lockedOrder)).thenReturn(lockedOrder);
+        when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
+
+        Order updated = orderService.updateOrderStatus(orderId, OrderStatus.READY);
+
+        assertSame(lockedOrder, updated);
+        assertEquals(8, updated.getTableNumber());
+        assertEquals(OrderStatus.READY, updated.getStatus());
+    }
+
+    @Test
     void rejectsEveryInvalidTransitionWithConflict() {
         for (OrderStatus current : workflowStatuses()) {
             for (OrderStatus requested : workflowStatuses()) {
@@ -101,7 +300,7 @@ class OrderServiceStatusTransitionTest {
 
                 UUID orderId = UUID.randomUUID();
                 Order order = order(orderId, UUID.randomUUID(), current);
-                when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+                when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
 
                 ResponseStatusException error = assertThrows(
                         ResponseStatusException.class,
@@ -122,7 +321,7 @@ class OrderServiceStatusTransitionTest {
     void repeatingTheCurrentStatusIsIdempotent() {
         UUID orderId = UUID.randomUUID();
         Order order = order(orderId, UUID.randomUUID(), OrderStatus.READY);
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.of(order));
 
         Order unchanged = orderService.updateOrderStatus(orderId, OrderStatus.READY);
 
@@ -135,7 +334,7 @@ class OrderServiceStatusTransitionTest {
     @Test
     void missingOrderReturnsNotFoundInsteadOfAFakeOrder() {
         UUID orderId = UUID.randomUUID();
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+        when(orderRepository.findByIdForUpdate(orderId)).thenReturn(Optional.empty());
 
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
@@ -243,7 +442,7 @@ class OrderServiceStatusTransitionTest {
         table.setTableNumber(5);
         table.setSessionToken("original-session");
 
-        when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
+        when(orderRepository.findByIdForUpdate(order.getId())).thenReturn(Optional.of(order));
         when(orderRepository.save(order)).thenReturn(order);
         when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
         when(orderRepository.existsByCafeIdAndTableNumberAndStatusNotIn(
@@ -279,7 +478,7 @@ class OrderServiceStatusTransitionTest {
         Order paid = order(UUID.randomUUID(), cafeId, OrderStatus.PAID);
         Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
 
-        when(orderRepository.findById(paid.getId())).thenReturn(Optional.of(paid));
+        when(orderRepository.findByIdForUpdate(paid.getId())).thenReturn(Optional.of(paid));
         when(orderRepository.save(paid)).thenReturn(paid);
         when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
         when(orderRepository.existsByCafeIdAndTableNumberAndStatusNotIn(
