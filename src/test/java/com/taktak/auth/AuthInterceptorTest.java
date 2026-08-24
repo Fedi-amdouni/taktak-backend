@@ -26,11 +26,39 @@ class AuthInterceptorTest {
     }
 
     @Test
+    void qrCapabilityTransferEndpointAcceptsAnonymousPostButNotPatch() throws Exception {
+        String path = "/api/cafes/monastir-lounge/orders/00000000-0000-0000-0000-000000000001/transfer-table";
+
+        assertTrue(interceptor.preHandle(
+                request("POST", path),
+                new MockHttpServletResponse(),
+                new Object()
+        ));
+
+        MockHttpServletResponse patchResponse = new MockHttpServletResponse();
+        assertFalse(interceptor.preHandle(request("PATCH", path), patchResponse, new Object()));
+        assertEquals(401, patchResponse.getStatus());
+    }
+
+    @Test
     void protectedAnalyticsRejectsAnonymousRequests() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
         assertFalse(interceptor.preHandle(
                 request("GET", "/api/cafes/monastir-lounge/analytics"), response, new Object()));
         assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    void tableTokensAreOnlyAvailableToAuthenticatedCafeStaff() throws Exception {
+        MockHttpServletResponse anonymousResponse = new MockHttpServletResponse();
+        assertFalse(interceptor.preHandle(
+                request("GET", "/api/cafes/monastir-lounge/tables"), anonymousResponse, new Object()));
+        assertEquals(401, anonymousResponse.getStatus());
+
+        String token = tokens.issue("waiter-1", "STAFF", "monastir-lounge");
+        assertTrue(interceptor.preHandle(
+                authenticated("GET", "/api/cafes/monastir-lounge/tables", token),
+                new MockHttpServletResponse(), new Object()));
     }
 
     @Test

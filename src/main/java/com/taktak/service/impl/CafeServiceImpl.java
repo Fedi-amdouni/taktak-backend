@@ -4,14 +4,20 @@ import com.taktak.model.Cafe;
 import com.taktak.model.CafeTable;
 import com.taktak.model.Category;
 import com.taktak.model.Product;
+import com.taktak.model.Order;
+import com.taktak.model.OrderStatus;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
 import com.taktak.repository.CategoryRepository;
+import com.taktak.repository.OrderRepository;
 import com.taktak.repository.ProductRepository;
 import com.taktak.service.ICafeService;
 import com.taktak.service.IOrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,6 +33,8 @@ public class CafeServiceImpl implements ICafeService {
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
     private final CafeTableRepository cafeTableRepository;
+    private final OrderRepository orderRepository;
+    private final SimpMessagingTemplate messagingTemplate;
     private final IOrderService orderService;
 
     @Override
@@ -39,12 +47,7 @@ public class CafeServiceImpl implements ICafeService {
     @Transactional(readOnly = true)
     public Cafe getCafeBySlug(String slug) {
         return cafeRepository.findBySlug(slug)
-                .orElseGet(() -> Cafe.builder()
-                        .name("Monastir Lounge")
-                        .slug(slug)
-                        .logoUrl("https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=300&q=80")
-                        .build()
-                );
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Café introuvable"));
     }
 
     @Override
@@ -107,13 +110,24 @@ public class CafeServiceImpl implements ICafeService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<CafeTable> getTablesByCafe(String slug) {
         Cafe cafe = cafeRepository.findBySlug(slug).orElse(null);
         if (cafe == null) {
             return List.of();
         }
-        return cafeTableRepository.findByCafeId(cafe.getId().toString());
+        List<CafeTable> tables = cafeTableRepository.findByCafeId(cafe.getId().toString());
+        boolean modified = false;
+        for (CafeTable table : tables) {
+            if (table.getSessionToken() == null || table.getSessionToken().isBlank()) {
+                table.setSessionToken(java.util.UUID.randomUUID().toString());
+                modified = true;
+            }
+        }
+        if (modified) {
+            tables = cafeTableRepository.saveAll(tables);
+        }
+        return tables;
     }
 
     @Override
@@ -147,5 +161,120 @@ public class CafeServiceImpl implements ICafeService {
     @Transactional(readOnly = true)
     public Map<String, Object> getAnalytics(String slug) {
         return orderService.getAnalyticsForCafe(slug);
+    }
+
+    @Override
+    @Transactional
+    public Cafe updateLocationSettings(String slug, Double latitude, Double longitude, Double geofenceRadiusMeters) {
+        Cafe cafe = cafeRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Café introuvable : " + slug));
+
+        if (latitude != null) cafe.setLatitude(latitude);
+        if (longitude != null) cafe.setLongitude(longitude);
+        if (geofenceRadiusMeters != null) cafe.setGeofenceRadiusMeters(geofenceRadiusMeters);
+
+        return cafeRepository.save(cafe);
+    }
+
+    @Override
+    @Transactional
+    public Cafe updateFeatureSettings(String slug, Map<String, Object> settings) {
+        Cafe cafe = cafeRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("CafÃ© introuvable : " + slug));
+
+        if (settings.containsKey("orderingEnabled")) cafe.setOrderingEnabled(Boolean.TRUE.equals(settings.get("orderingEnabled")));
+        if (settings.containsKey("waiterCallsEnabled")) cafe.setWaiterCallsEnabled(Boolean.TRUE.equals(settings.get("waiterCallsEnabled")));
+        if (settings.containsKey("gamesEnabled")) cafe.setGamesEnabled(Boolean.TRUE.equals(settings.get("gamesEnabled")));
+        if (settings.containsKey("ambianceVotingEnabled")) cafe.setAmbianceVotingEnabled(Boolean.TRUE.equals(settings.get("ambianceVotingEnabled")));
+        if (settings.containsKey("rewardsEnabled")) cafe.setRewardsEnabled(Boolean.TRUE.equals(settings.get("rewardsEnabled")));
+        if (settings.containsKey("tvMenuEnabled")) cafe.setTvMenuEnabled(Boolean.TRUE.equals(settings.get("tvMenuEnabled")));
+        Object requestedStyle = settings.get("tvMenuStyle");
+        if (requestedStyle instanceof String style && java.util.Set.of("ELEGANT", "ESPRESSO", "URBAN").contains(style)) {
+            cafe.setTvMenuStyle(style);
+        }
+
+        return cafeRepository.save(cafe);
+    }
+
+    @Override
+    @Transactional
+    public CafeTable toggleTableGames(String slug, Integer tableNumber, Boolean enabled) {
+        Cafe cafe = cafeRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Café introuvable : " + slug));
+
+        CafeTable table = cafeTableRepository.findByCafeIdAndTableNumber(cafe.getId().toString(), tableNumber)
+                .orElseGet(() -> {
+                    CafeTable newT = new CafeTable();
+                    newT.setCafeId(cafe.getId().toString());
+                    newT.setTableNumber(tableNumber);
+                    return newT;
+                });
+
+        table.setGamesEnabledOverride(enabled);
+        CafeTable saved = cafeTableRepository.save(table);
+
+        // Diffuser mise à jour temps réel à la table
+        messagingTemplate.convertAndSend("/topic/tables/" + slug + "/" + tableNumber, getTableStatus(slug, tableNumber, null));
+
+        return saved;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> getTableStatus(String slug, Integer tableNumber, String providedSessionToken) {
+        Cafe cafe = cafeRepository.findBySlug(slug).orElse(null);
+        if (cafe == null) return Map.of(
+                "tableNumber", tableNumber,
+                "hasActiveOrders", false,
+                "gamesAllowed", false,
+                "sessionValid", false,
+                "gamesEnabledOverride", "AUTO"
+        );
+
+        // 1. Vérifier si la table a des commandes en cours (non payées / non archivées)
+        List<Order> orders = orderRepository.findByCafeIdOrderByCreatedAtDesc(cafe.getId());
+        boolean hasActiveOrders = orders.stream().anyMatch(o ->
+                o.getTableNumber() != null && o.getTableNumber().equals(tableNumber)
+                && o.getStatus() != OrderStatus.PAID
+                && o.getStatus() != OrderStatus.ARCHIVED
+                && o.getStatus() != OrderStatus.CANCELLED
+        );
+
+        // 2. Vérifier override spécifique gérant/staff
+        Boolean override = null;
+        String currentSessionToken = null;
+        Optional<CafeTable> tableOpt = cafeTableRepository.findByCafeIdAndTableNumber(cafe.getId().toString(), tableNumber);
+        if (tableOpt.isPresent()) {
+            CafeTable table = tableOpt.get();
+            override = table.getGamesEnabledOverride();
+            if (table.getSessionToken() == null || table.getSessionToken().isBlank()) {
+                table.setSessionToken(java.util.UUID.randomUUID().toString());
+                cafeTableRepository.save(table);
+            }
+            currentSessionToken = table.getSessionToken();
+        }
+
+        // Si override fixé par staff (true ou false), sinon automatique selon commande active
+        boolean cafeGamesEnabled = Boolean.TRUE.equals(cafe.getGamesEnabled());
+        boolean gamesAllowed = cafeGamesEnabled && (override != null ? override : hasActiveOrders);
+        boolean sessionValid = sessionTokenMatches(currentSessionToken, providedSessionToken);
+
+        return Map.of(
+                "tableNumber", tableNumber,
+                "hasActiveOrders", hasActiveOrders,
+                "gamesAllowed", gamesAllowed,
+                "sessionValid", sessionValid,
+                "gamesEnabledOverride", override != null ? override : "AUTO"
+        );
+    }
+
+    private boolean sessionTokenMatches(String expected, String provided) {
+        if (expected == null || expected.isBlank() || provided == null || provided.isBlank()) {
+            return false;
+        }
+        return java.security.MessageDigest.isEqual(
+                expected.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                provided.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
     }
 }

@@ -15,4 +15,8 @@ public interface ICafeService {
     List<CafeTable> saveTablesBatch(String slug, List<CafeTable> tables);
     Map<String, String> uploadImage(MultipartFile file);
     Map<String, Object> getAnalytics(String slug);
+    Cafe updateLocationSettings(String slug, Double latitude, Double longitude, Double geofenceRadiusMeters);
+    Cafe updateFeatureSettings(String slug, Map<String, Object> settings);
+    CafeTable toggleTableGames(String slug, Integer tableNumber, Boolean enabled);
+    Map<String, Object> getTableStatus(String slug, Integer tableNumber, String sessionToken);
 }

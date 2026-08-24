@@ -1,6 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
+  "env": {
+    "SPRING_JPA_HIBERNATE_DDL_AUTO": "none",
+    "SPRING_JPA_DATABASE_PLATFORM": "org.hibernate.dialect.PostgreSQLDialect",
+    "SPRING_JPA_ALLOW_JDBC_METADATA_ACCESS": "false",
+    "TAKTAK_PARTY_QUESTION_SYNC_ON_STARTUP": "false",
+    "TAKTAK_SEED_ENABLED": "false",
+    "TAKTAK_MIGRATIONS_RUN_ON_STARTUP": "false"
+  },
   "services": {
     "api": {
       "runtime": "container",

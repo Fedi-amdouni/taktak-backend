@@ -21,9 +21,29 @@ public class OrderController {
     private final IOrderService orderService;
 
     @PostMapping("/orders")
-    public ResponseEntity<Order> createOrder(@RequestBody CreateOrderPayload payload) {
-        Order created = orderService.createOrder(payload);
+    public ResponseEntity<Order> createOrder(@RequestBody CreateOrderPayload payload, jakarta.servlet.http.HttpServletRequest request) {
+        String clientIp = extractClientIp(request);
+        Order created = orderService.createOrder(payload, clientIp);
         return ResponseEntity.ok(created);
+    }
+
+    @PostMapping("/cafes/{slug}/staff-heartbeat")
+    public ResponseEntity<Map<String, String>> staffHeartbeat(@PathVariable String slug, jakarta.servlet.http.HttpServletRequest request) {
+        String staffIp = extractClientIp(request);
+        orderService.updateCafeWifiIp(slug, staffIp);
+        return ResponseEntity.ok(Map.of("status", "ok", "wifiIp", staffIp));
+    }
+
+    private String extractClientIp(jakarta.servlet.http.HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
     }
 
     @GetMapping("/cafes/{slug}/orders")
@@ -38,9 +58,15 @@ public class OrderController {
     }
 
     @DeleteMapping("/cafes/{slug}/orders/in-progress")
-    public ResponseEntity<Map<String, Integer>> deleteInProgressOrders(@PathVariable String slug) {
-        int deleted = orderService.deleteInProgressOrders(slug);
-        return ResponseEntity.ok(Map.of("deletedOrders", deleted));
+    public ResponseEntity<Map<String, Integer>> archiveInProgressOrdersLegacy(@PathVariable String slug) {
+        int archived = orderService.archiveInProgressOrders(slug);
+        return ResponseEntity.ok(Map.of("archivedOrders", archived));
+    }
+
+    @PostMapping("/cafes/{slug}/orders/in-progress/archive")
+    public ResponseEntity<Map<String, Integer>> archiveInProgressOrders(@PathVariable String slug) {
+        int archived = orderService.archiveInProgressOrders(slug);
+        return ResponseEntity.ok(Map.of("archivedOrders", archived));
     }
 
     @PatchMapping("/orders/{id}/status")
@@ -49,9 +75,11 @@ public class OrderController {
         return ResponseEntity.ok(updated);
     }
 
-    @PostMapping("/orders/{id}/transfer-table")
-    public ResponseEntity<Order> transferOrderTable(@PathVariable UUID id, @RequestBody TableTransferDto dto) {
-        Order updated = orderService.transferOrderTable(id, dto.getNewTableNumber());
-        return ResponseEntity.ok(updated);
+    @PostMapping("/cafes/{slug}/orders/{id}/transfer-table")
+    public ResponseEntity<List<Order>> transferOrderTable(
+            @PathVariable String slug,
+            @PathVariable UUID id,
+            @RequestBody TableTransferDto dto) {
+        return ResponseEntity.ok(orderService.transferOrderTable(id, slug, dto));
     }
 }

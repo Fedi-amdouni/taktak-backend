@@ -9,7 +9,13 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "orders")
+@Table(
+        name = "orders",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_orders_cafe_client_order_jpa",
+                columnNames = {"cafe_id", "client_order_id"}
+        )
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -29,6 +35,12 @@ public class Order {
 
     @Column(name = "table_number", nullable = false)
     private Integer tableNumber;
+
+    @Column(name = "participant_id", length = 64)
+    private String participantId;
+
+    @Column(name = "client_order_id", length = 64)
+    private String clientOrderId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -56,6 +68,32 @@ public class Order {
     @Builder.Default
     private Boolean tableChangedAlert = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "presence_status")
+    @Builder.Default
+    private OrderPresenceStatus presenceStatus = OrderPresenceStatus.UNVERIFIED_LOCATION;
+
+    @Column(name = "client_latitude")
+    private Double clientLatitude;
+
+    @Column(name = "client_longitude")
+    private Double clientLongitude;
+
+    @Column(name = "client_accuracy_meters")
+    private Double clientAccuracyMeters;
+
+    @Column(name = "distance_meters")
+    private Double distanceMeters;
+
+    @Column(name = "estimated_wait_minutes")
+    private Integer estimatedWaitMinutes;
+
+    @Column(name = "estimated_ready_at")
+    private LocalDateTime estimatedReadyAt;
+
+    @Column(name = "client_ip")
+    private String clientIp;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -64,6 +102,12 @@ public class Order {
 
     @Column(name = "served_at")
     private LocalDateTime servedAt;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "archive_reason", length = 64)
+    private String archiveReason;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
