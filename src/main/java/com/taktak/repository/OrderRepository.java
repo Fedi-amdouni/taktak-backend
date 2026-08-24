@@ -14,5 +14,11 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findByCafeIdAndStatusOrderByCreatedAtDesc(UUID cafeId, OrderStatus status);
     List<Order> findByCafeIdAndStatusIn(UUID cafeId, Collection<OrderStatus> statuses);
     List<Order> findByStatusAndUpdatedAtBefore(OrderStatus status, LocalDateTime cutoff);
+    List<Order> findByStatusInAndUpdatedAtBefore(Collection<OrderStatus> statuses, LocalDateTime cutoff);
+    boolean existsByCafeIdAndTableNumberAndStatusNotIn(
+            UUID cafeId,
+            Integer tableNumber,
+            Collection<OrderStatus> statuses
+    );
     Optional<Order> findByCafeIdAndClientOrderId(UUID cafeId, String clientOrderId);
 }

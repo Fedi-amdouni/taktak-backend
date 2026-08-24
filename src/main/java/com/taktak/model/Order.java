@@ -79,6 +79,9 @@ public class Order {
     @Column(name = "client_longitude")
     private Double clientLongitude;
 
+    @Column(name = "client_accuracy_meters")
+    private Double clientAccuracyMeters;
+
     @Column(name = "distance_meters")
     private Double distanceMeters;
 
@@ -99,6 +102,12 @@ public class Order {
 
     @Column(name = "served_at")
     private LocalDateTime servedAt;
+
+    @Column(name = "archived_at")
+    private LocalDateTime archivedAt;
+
+    @Column(name = "archive_reason", length = 64)
+    private String archiveReason;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;

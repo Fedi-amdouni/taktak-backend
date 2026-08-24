@@ -44,8 +44,11 @@ taktak:
   mail:
     from: ${TAKTAK_MAIL_FROM:}
   orders:
-    auto-archive-seconds: ${TAKTAK_ORDER_AUTO_ARCHIVE_SECONDS:15}
+    auto-archive-seconds: ${TAKTAK_ORDER_AUTO_ARCHIVE_SECONDS:300}
+    stale-active-hours: ${TAKTAK_ORDER_STALE_ACTIVE_HOURS:24}
     archive-check-ms: ${TAKTAK_ORDER_ARCHIVE_CHECK_MS:5000}
+  location:
+    max-gps-accuracy-meters: ${TAKTAK_MAX_GPS_ACCURACY_METERS:50}
   auth:
     secret: ${TAKTAK_AUTH_SECRET:taktak_super_secret_jwt_key_2026_dev_mode_secret}
     # Owner accounts: username:password:cafe-slug,cafe-slug. Set TAKTAK_OWNER_ACCOUNTS in shared environments.

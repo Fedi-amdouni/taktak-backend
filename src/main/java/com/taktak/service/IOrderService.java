@@ -17,7 +17,7 @@ public interface IOrderService {
     Order getOrder(UUID orderId);
     Order updateOrderStatus(UUID orderId, OrderStatus newStatus);
     Order transferOrderTable(UUID orderId, Integer newTableNumber);
-    int deleteInProgressOrders(String cafeSlug);
+    int archiveInProgressOrders(String cafeSlug);
     Map<String, Object> getAnalyticsForCafe(String cafeSlug);
     List<WaiterPerformanceDto> getWaiterPerformanceMetrics(String cafeSlug, String period);
 }

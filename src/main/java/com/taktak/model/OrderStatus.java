@@ -8,5 +8,22 @@ public enum OrderStatus {
     SERVED,
     PAID,
     ARCHIVED,
-    CANCELLED
+    CANCELLED;
+
+    public boolean isActive() {
+        return this == RECEIVED || this == PREPARING || this == READY
+                || this == PICKED_UP || this == SERVED;
+    }
+
+    public boolean isPaid() {
+        return this == PAID;
+    }
+
+    public boolean isArchived() {
+        return this == ARCHIVED;
+    }
+
+    public boolean isTerminal() {
+        return this == ARCHIVED || this == CANCELLED;
+    }
 }

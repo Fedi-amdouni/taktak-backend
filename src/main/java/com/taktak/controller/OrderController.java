@@ -58,9 +58,15 @@ public class OrderController {
     }
 
     @DeleteMapping("/cafes/{slug}/orders/in-progress")
-    public ResponseEntity<Map<String, Integer>> deleteInProgressOrders(@PathVariable String slug) {
-        int deleted = orderService.deleteInProgressOrders(slug);
-        return ResponseEntity.ok(Map.of("deletedOrders", deleted));
+    public ResponseEntity<Map<String, Integer>> archiveInProgressOrdersLegacy(@PathVariable String slug) {
+        int archived = orderService.archiveInProgressOrders(slug);
+        return ResponseEntity.ok(Map.of("archivedOrders", archived));
+    }
+
+    @PostMapping("/cafes/{slug}/orders/in-progress/archive")
+    public ResponseEntity<Map<String, Integer>> archiveInProgressOrders(@PathVariable String slug) {
+        int archived = orderService.archiveInProgressOrders(slug);
+        return ResponseEntity.ok(Map.of("archivedOrders", archived));
     }
 
     @PatchMapping("/orders/{id}/status")

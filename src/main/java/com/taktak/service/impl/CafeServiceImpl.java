@@ -16,6 +16,8 @@ import com.taktak.service.IOrderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -45,12 +47,7 @@ public class CafeServiceImpl implements ICafeService {
     @Transactional(readOnly = true)
     public Cafe getCafeBySlug(String slug) {
         return cafeRepository.findBySlug(slug)
-                .orElseGet(() -> Cafe.builder()
-                        .name("Monastir Lounge")
-                        .slug(slug)
-                        .logoUrl("https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=300&q=80")
-                        .build()
-                );
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Café introuvable"));
     }
 
     @Override

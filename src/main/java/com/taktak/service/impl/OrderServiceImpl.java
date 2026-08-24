@@ -13,6 +13,7 @@ import com.taktak.repository.WaiterRepository;
 import com.taktak.service.IOrderService;
 import com.taktak.service.RewardService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,13 +32,20 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderServiceImpl implements IOrderService {
 
     private static final Set<OrderStatus> IN_PROGRESS_STATUSES = EnumSet.of(
             OrderStatus.RECEIVED,
             OrderStatus.PREPARING,
             OrderStatus.READY,
-            OrderStatus.PICKED_UP
+            OrderStatus.PICKED_UP,
+            OrderStatus.SERVED
+    );
+
+    private static final Set<OrderStatus> TERMINAL_STATUSES = EnumSet.of(
+            OrderStatus.ARCHIVED,
+            OrderStatus.CANCELLED
     );
 
     private static final Map<OrderStatus, OrderStatus> ALLOWED_TRANSITIONS = Map.of(
@@ -60,8 +68,14 @@ public class OrderServiceImpl implements IOrderService {
     @Autowired(required = false) private RewardService rewardService;
     @Autowired(required = false) private CouponRepository couponRepository;
 
-    @Value("${taktak.orders.auto-archive-seconds:15}")
-    private long autoArchiveSeconds;
+    @Value("${taktak.orders.auto-archive-seconds:300}")
+    private long autoArchiveSeconds = 300;
+
+    @Value("${taktak.orders.stale-active-hours:24}")
+    private long staleActiveHours = 24;
+
+    @Value("${taktak.location.max-gps-accuracy-meters:50}")
+    private double maxGpsAccuracyMeters = 50;
 
     @Override
     @Transactional
@@ -98,15 +112,7 @@ public class OrderServiceImpl implements IOrderService {
         String participantId = normalizeClientIdentifier(payload.getParticipantId(), "participantId");
 
         Cafe cafe = cafeRepository.findBySlug(payload.getCafeSlug())
-                .orElseGet(() -> cafeRepository.save(
-                        Cafe.builder()
-                                .name("Monastir Lounge")
-                                .slug(payload.getCafeSlug())
-                                .latitude(35.777)
-                                .longitude(10.826)
-                                .geofenceRadiusMeters(120.0)
-                                .build()
-                ));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Café introuvable"));
 
         if (!Boolean.TRUE.equals(cafe.getOrderingEnabled())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "La commande en ligne est dÃ©sactivÃ©e pour ce cafÃ©");
@@ -126,14 +132,6 @@ public class OrderServiceImpl implements IOrderService {
                 }
                 return existing;
             }
-        }
-
-        // Initialiser coordonnées par défaut pour Monastir Lounge si nulles
-        if (cafe.getLatitude() == null || cafe.getLongitude() == null) {
-            cafe.setLatitude(35.777);
-            cafe.setLongitude(10.826);
-            cafe.setGeofenceRadiusMeters(120.0);
-            cafeRepository.save(cafe);
         }
 
         // Présence & Géolocalisation non-bloquante
@@ -156,7 +154,12 @@ public class OrderServiceImpl implements IOrderService {
             );
 
             double maxRadius = cafe.getGeofenceRadiusMeters() != null ? cafe.getGeofenceRadiusMeters() : 120.0;
-            if (distanceMeters <= maxRadius) {
+            Double accuracyMeters = payload.getClientAccuracyMeters();
+            boolean accurateEnough = accuracyMeters != null
+                    && Double.isFinite(accuracyMeters)
+                    && accuracyMeters >= 0
+                    && accuracyMeters <= maxGpsAccuracyMeters;
+            if (accurateEnough && distanceMeters + accuracyMeters <= maxRadius) {
                 presenceStatus = OrderPresenceStatus.VERIFIED_GPS;
             }
         }
@@ -201,6 +204,7 @@ public class OrderServiceImpl implements IOrderService {
                 .presenceStatus(presenceStatus)
                 .clientLatitude(payload.getClientLatitude())
                 .clientLongitude(payload.getClientLongitude())
+                .clientAccuracyMeters(payload.getClientAccuracyMeters())
                 .distanceMeters(distanceMeters != null ? Math.round(distanceMeters * 10.0) / 10.0 : null)
                 .estimatedWaitMinutes(estimatedWaitMinutes)
                 .estimatedReadyAt(estimatedReadyAt)
@@ -310,6 +314,10 @@ public class OrderServiceImpl implements IOrderService {
             }
         }
 
+        if (newStatus == OrderStatus.ARCHIVED) {
+            markArchived(order, "STAFF_ARCHIVED", now);
+        }
+
         order.setStatus(newStatus);
 
         Order updated = orderRepository.save(order);
@@ -326,20 +334,8 @@ public class OrderServiceImpl implements IOrderService {
             }
         });
 
-        // Rotation automatique du jeton de table à l'encaissement (PAID / ARCHIVED)
-        // Invalide immédiatement toute ancienne session mobile ouverte à distance
-        if (newStatus == OrderStatus.PAID || newStatus == OrderStatus.ARCHIVED) {
-            try {
-                if (updated.getCafeId() != null && updated.getTableNumber() != null) {
-                    cafeTableRepository.findByCafeIdAndTableNumber(updated.getCafeId().toString(), updated.getTableNumber())
-                            .ifPresent(table -> {
-                                table.setSessionToken(UUID.randomUUID().toString());
-                                cafeTableRepository.save(table);
-                            });
-                }
-            } catch (Exception ignored) {
-                // Non-bloquant
-            }
+        if (newStatus.isTerminal()) {
+            releaseTableIfAllOrdersAreTerminal(updated);
         }
 
         if (updated.getItems() != null) {
@@ -358,14 +354,17 @@ public class OrderServiceImpl implements IOrderService {
     @Transactional
     public void archivePaidOrders() {
         archivePaidOrdersBefore(LocalDateTime.now().minusSeconds(autoArchiveSeconds));
+        archiveStaleActiveOrdersBefore(LocalDateTime.now().minusHours(staleActiveHours));
     }
 
     public int archivePaidOrdersBefore(LocalDateTime cutoff) {
         List<Order> paidOrders = orderRepository.findByStatusAndUpdatedAtBefore(OrderStatus.PAID, cutoff);
         if (paidOrders.isEmpty()) return 0;
 
-        paidOrders.forEach(order -> order.setStatus(OrderStatus.ARCHIVED));
+        LocalDateTime now = LocalDateTime.now();
+        paidOrders.forEach(order -> markArchived(order, "PAID_RETENTION_ELAPSED", now));
         List<Order> archivedOrders = orderRepository.saveAll(paidOrders);
+        releaseEligibleTables(archivedOrders);
 
         Map<UUID, String> cafeSlugs = new HashMap<>();
         archivedOrders.forEach(order -> {
@@ -376,6 +375,22 @@ public class OrderServiceImpl implements IOrderService {
             }
         });
 
+        return archivedOrders.size();
+    }
+
+    public int archiveStaleActiveOrdersBefore(LocalDateTime cutoff) {
+        List<Order> staleOrders = orderRepository.findByStatusInAndUpdatedAtBefore(IN_PROGRESS_STATUSES, cutoff);
+        if (staleOrders.isEmpty()) return 0;
+
+        LocalDateTime now = LocalDateTime.now();
+        staleOrders.forEach(order -> markArchived(order, "STALE_ACTIVE_ORDER", now));
+        List<Order> archivedOrders = orderRepository.saveAll(staleOrders);
+        releaseEligibleTables(archivedOrders);
+        broadcastArchivedOrders(archivedOrders);
+        archivedOrders.forEach(order -> log.warn(
+                "Archived stale order id={} cafeId={} table={} previous inactivity cutoff={}",
+                order.getId(), order.getCafeId(), order.getTableNumber(), cutoff
+        ));
         return archivedOrders.size();
     }
 
@@ -412,7 +427,7 @@ public class OrderServiceImpl implements IOrderService {
 
     @Override
     @Transactional
-    public int deleteInProgressOrders(String cafeSlug) {
+    public int archiveInProgressOrders(String cafeSlug) {
         Cafe cafe = cafeRepository.findBySlug(cafeSlug)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Café introuvable"));
 
@@ -427,15 +442,60 @@ public class OrderServiceImpl implements IOrderService {
             }
         }));
 
-        orderRepository.deleteAll(orders);
+        LocalDateTime now = LocalDateTime.now();
+        orders.forEach(order -> markArchived(order, "STAFF_BULK_ARCHIVE", now));
+        List<Order> archivedOrders = orderRepository.saveAll(orders);
+        releaseEligibleTables(archivedOrders);
+        archivedOrders.forEach(order -> messagingTemplate.convertAndSend("/topic/orders/" + cafeSlug, order));
 
-        // Tell connected dashboards and customer trackers to remove the deleted orders immediately.
-        orders.forEach(order -> {
-            order.setStatus(OrderStatus.CANCELLED);
-            messagingTemplate.convertAndSend("/topic/orders/" + cafeSlug, order);
+        log.info("Staff bulk-archived {} active orders for cafe={}", archivedOrders.size(), cafeSlug);
+
+        return archivedOrders.size();
+    }
+
+    private void markArchived(Order order, String reason, LocalDateTime archivedAt) {
+        order.setStatus(OrderStatus.ARCHIVED);
+        order.setArchivedAt(archivedAt);
+        order.setArchiveReason(reason);
+    }
+
+    private void releaseEligibleTables(Collection<Order> orders) {
+        Set<String> checkedTables = new HashSet<>();
+        for (Order order : orders) {
+            String key = order.getCafeId() + ":" + order.getTableNumber();
+            if (checkedTables.add(key)) {
+                releaseTableIfAllOrdersAreTerminal(order);
+            }
+        }
+    }
+
+    private void releaseTableIfAllOrdersAreTerminal(Order order) {
+        if (order.getCafeId() == null || order.getTableNumber() == null) return;
+        boolean hasNonTerminalOrders = orderRepository.existsByCafeIdAndTableNumberAndStatusNotIn(
+                order.getCafeId(),
+                order.getTableNumber(),
+                TERMINAL_STATUSES
+        );
+        if (hasNonTerminalOrders) return;
+
+        cafeTableRepository.findByCafeIdAndTableNumber(order.getCafeId().toString(), order.getTableNumber())
+                .ifPresent(table -> {
+                    table.setSessionToken(UUID.randomUUID().toString());
+                    cafeTableRepository.save(table);
+                    log.info("Released table cafeId={} table={} after all orders became terminal",
+                            order.getCafeId(), order.getTableNumber());
+                });
+    }
+
+    private void broadcastArchivedOrders(Collection<Order> archivedOrders) {
+        Map<UUID, String> cafeSlugs = new HashMap<>();
+        archivedOrders.forEach(order -> {
+            String cafeSlug = cafeSlugs.computeIfAbsent(order.getCafeId(), cafeId ->
+                    cafeRepository.findById(cafeId).map(Cafe::getSlug).orElse(null));
+            if (cafeSlug != null) {
+                messagingTemplate.convertAndSend("/topic/orders/" + cafeSlug, order);
+            }
         });
-
-        return orders.size();
     }
 
     @Override

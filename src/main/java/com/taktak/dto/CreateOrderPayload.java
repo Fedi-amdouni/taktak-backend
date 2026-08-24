@@ -12,6 +12,7 @@ public class CreateOrderPayload {
     private String couponCode;
     private Double clientLatitude;
     private Double clientLongitude;
+    private Double clientAccuracyMeters;
     private String participantId;
     private String clientOrderId;
     private List<OrderItemPayload> items;

@@ -2,7 +2,9 @@ package com.taktak.service;
 
 import com.taktak.dto.CreateOrderPayload;
 import com.taktak.model.Cafe;
+import com.taktak.model.CafeTable;
 import com.taktak.model.Order;
+import com.taktak.model.OrderPresenceStatus;
 import com.taktak.model.OrderStatus;
 import com.taktak.repository.CafeRepository;
 import com.taktak.repository.CafeTableRepository;
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -41,6 +44,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.atLeastOnce;
 
 class OrderServiceStatusTransitionTest {
 
@@ -182,7 +186,7 @@ class OrderServiceStatusTransitionTest {
     }
 
     @Test
-    void deletesOnlyInProgressOrdersForTheRequestedCafe() {
+    void archivesOnlyInProgressOrdersForTheRequestedCafeWithoutDeletingHistory() {
         UUID cafeId = UUID.randomUUID();
         Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
         Order received = order(UUID.randomUUID(), cafeId, OrderStatus.RECEIVED);
@@ -193,13 +197,17 @@ class OrderServiceStatusTransitionTest {
                 org.mockito.ArgumentMatchers.eq(cafeId),
                 org.mockito.ArgumentMatchers.anyCollection()
         )).thenReturn(List.of(received, ready));
+        when(orderRepository.saveAll(List.of(received, ready))).thenReturn(List.of(received, ready));
 
-        int deleted = orderService.deleteInProgressOrders("monastir-lounge");
+        int archived = orderService.archiveInProgressOrders("monastir-lounge");
 
-        assertEquals(2, deleted);
-        verify(orderRepository).deleteAll(List.of(received, ready));
-        assertEquals(OrderStatus.CANCELLED, received.getStatus());
-        assertEquals(OrderStatus.CANCELLED, ready.getStatus());
+        assertEquals(2, archived);
+        verify(orderRepository).saveAll(List.of(received, ready));
+        verify(orderRepository, never()).deleteAll(any());
+        assertEquals(OrderStatus.ARCHIVED, received.getStatus());
+        assertEquals(OrderStatus.ARCHIVED, ready.getStatus());
+        assertEquals("STAFF_BULK_ARCHIVE", received.getArchiveReason());
+        assertNotNull(received.getArchivedAt());
         verify(messagingTemplate).convertAndSend("/topic/orders/monastir-lounge", received);
         verify(messagingTemplate).convertAndSend("/topic/orders/monastir-lounge", ready);
     }
@@ -219,8 +227,140 @@ class OrderServiceStatusTransitionTest {
 
         assertEquals(1, archived);
         assertEquals(OrderStatus.ARCHIVED, paid.getStatus());
+        assertEquals("PAID_RETENTION_ELAPSED", paid.getArchiveReason());
+        assertNotNull(paid.getArchivedAt());
         verify(orderRepository).saveAll(List.of(paid));
         verify(messagingTemplate).convertAndSend("/topic/orders/monastir-lounge", paid);
+    }
+
+    @Test
+    void normalLifecycleReleasesTableOnlyAfterArchive() {
+        UUID cafeId = UUID.randomUUID();
+        Order order = order(UUID.randomUUID(), cafeId, OrderStatus.RECEIVED);
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
+        CafeTable table = new CafeTable();
+        table.setCafeId(cafeId.toString());
+        table.setTableNumber(5);
+        table.setSessionToken("original-session");
+
+        when(orderRepository.findById(order.getId())).thenReturn(Optional.of(order));
+        when(orderRepository.save(order)).thenReturn(order);
+        when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
+        when(orderRepository.existsByCafeIdAndTableNumberAndStatusNotIn(
+                org.mockito.ArgumentMatchers.eq(cafeId),
+                org.mockito.ArgumentMatchers.eq(5),
+                org.mockito.ArgumentMatchers.anyCollection()
+        )).thenReturn(false);
+        when(cafeTableRepository.findByCafeIdAndTableNumber(cafeId.toString(), 5)).thenReturn(Optional.of(table));
+
+        for (OrderStatus next : List.of(
+                OrderStatus.PREPARING,
+                OrderStatus.READY,
+                OrderStatus.SERVED,
+                OrderStatus.PAID
+        )) {
+            orderService.updateOrderStatus(order.getId(), next);
+        }
+
+        assertEquals("original-session", table.getSessionToken(), "le paiement seul ne libère pas la table");
+        verify(cafeTableRepository, never()).save(any(CafeTable.class));
+
+        orderService.updateOrderStatus(order.getId(), OrderStatus.ARCHIVED);
+
+        assertEquals(OrderStatus.ARCHIVED, order.getStatus());
+        assertNotNull(order.getArchivedAt());
+        assertNotEquals("original-session", table.getSessionToken());
+        verify(cafeTableRepository).save(table);
+    }
+
+    @Test
+    void archiveDoesNotReleaseTableWhileAnotherOrderIsNotTerminal() {
+        UUID cafeId = UUID.randomUUID();
+        Order paid = order(UUID.randomUUID(), cafeId, OrderStatus.PAID);
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
+
+        when(orderRepository.findById(paid.getId())).thenReturn(Optional.of(paid));
+        when(orderRepository.save(paid)).thenReturn(paid);
+        when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
+        when(orderRepository.existsByCafeIdAndTableNumberAndStatusNotIn(
+                org.mockito.ArgumentMatchers.eq(cafeId),
+                org.mockito.ArgumentMatchers.eq(5),
+                org.mockito.ArgumentMatchers.anyCollection()
+        )).thenReturn(true);
+
+        orderService.updateOrderStatus(paid.getId(), OrderStatus.ARCHIVED);
+
+        verify(cafeTableRepository, never()).findByCafeIdAndTableNumber(any(), any());
+        verify(cafeTableRepository, never()).save(any(CafeTable.class));
+    }
+
+    @Test
+    void archivesStaleActiveOrdersSafelyAndTraceably() {
+        UUID cafeId = UUID.randomUUID();
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
+        Order stale = order(UUID.randomUUID(), cafeId, OrderStatus.PREPARING);
+        Cafe cafe = Cafe.builder().id(cafeId).slug("monastir-lounge").name("Monastir Lounge").build();
+
+        when(orderRepository.findByStatusInAndUpdatedAtBefore(any(), org.mockito.ArgumentMatchers.eq(cutoff)))
+                .thenReturn(List.of(stale));
+        when(orderRepository.saveAll(List.of(stale))).thenReturn(List.of(stale));
+        when(cafeRepository.findById(cafeId)).thenReturn(Optional.of(cafe));
+        when(orderRepository.existsByCafeIdAndTableNumberAndStatusNotIn(any(), any(), any())).thenReturn(false);
+
+        int archived = orderService.archiveStaleActiveOrdersBefore(cutoff);
+
+        assertEquals(1, archived);
+        assertEquals(OrderStatus.ARCHIVED, stale.getStatus());
+        assertEquals("STALE_ACTIVE_ORDER", stale.getArchiveReason());
+        assertNotNull(stale.getArchivedAt());
+        verify(orderRepository).saveAll(List.of(stale));
+        verify(orderRepository, never()).deleteAll(any());
+    }
+
+    @Test
+    void twoDevicesCanCreateSeparateOrdersOnTheSameTable() {
+        UUID cafeId = UUID.randomUUID();
+        Cafe cafe = cafe(cafeId);
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(orderRepository.findByCafeIdAndClientOrderId(any(UUID.class), any(String.class)))
+                .thenReturn(Optional.empty());
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Order phoneA = orderService.createOrder(createPayload(UUID.randomUUID().toString(), "phone-a"));
+        Order phoneB = orderService.createOrder(createPayload(UUID.randomUUID().toString(), "phone-b"));
+
+        assertEquals(5, phoneA.getTableNumber());
+        assertEquals(5, phoneB.getTableNumber());
+        assertNotEquals(phoneA.getParticipantId(), phoneB.getParticipantId());
+        verify(orderRepository, times(2)).saveAndFlush(any(Order.class));
+    }
+
+    @Test
+    void verifiesAcceptedRefusedInaccurateGpsAndOfficialWifi() {
+        UUID cafeId = UUID.randomUUID();
+        Cafe cafe = cafe(cafeId);
+        cafe.setLastKnownWifiIp("203.0.113.10");
+        when(cafeRepository.findBySlug("monastir-lounge")).thenReturn(Optional.of(cafe));
+        when(orderRepository.findByCafeIdAndClientOrderId(any(UUID.class), any(String.class))).thenReturn(Optional.empty());
+        when(orderRepository.saveAndFlush(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CreateOrderPayload accepted = createPayload(UUID.randomUUID().toString(), "gps-ok");
+        accepted.setClientLatitude(35.777);
+        accepted.setClientLongitude(10.826);
+        accepted.setClientAccuracyMeters(10.0);
+        assertEquals(OrderPresenceStatus.VERIFIED_GPS, orderService.createOrder(accepted, "198.51.100.1").getPresenceStatus());
+
+        CreateOrderPayload refused = createPayload(UUID.randomUUID().toString(), "gps-refused");
+        assertEquals(OrderPresenceStatus.UNVERIFIED_LOCATION, orderService.createOrder(refused, "198.51.100.2").getPresenceStatus());
+
+        CreateOrderPayload inaccurate = createPayload(UUID.randomUUID().toString(), "gps-inaccurate");
+        inaccurate.setClientLatitude(35.777);
+        inaccurate.setClientLongitude(10.826);
+        inaccurate.setClientAccuracyMeters(80.0);
+        assertEquals(OrderPresenceStatus.UNVERIFIED_LOCATION, orderService.createOrder(inaccurate, "198.51.100.3").getPresenceStatus());
+
+        CreateOrderPayload wifi = createPayload(UUID.randomUUID().toString(), "wifi");
+        assertEquals(OrderPresenceStatus.VERIFIED_WIFI, orderService.createOrder(wifi, "203.0.113.10").getPresenceStatus());
     }
 
     private static Stream<Arguments> allowedTransitions() {
